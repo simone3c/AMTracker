@@ -5,6 +5,9 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 
+#define SSID ""
+#define PWD ""
+
 // event group to contain status information
 static EventGroupHandle_t wifi_event_group;
 static int s_retry_num = 0;
@@ -79,8 +82,8 @@ esp_err_t connect_wifi(){
     /** START THE WIFI DRIVER **/
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "Vodafone-C00180028",
-            .password = "3ffJKL3gENzxTpxK",
+            .ssid = SSID,
+            .password = PWD,
 	     .threshold.authmode = WIFI_AUTH_WPA2_PSK,
             .pmf_cfg = {
                 .capable = true,
