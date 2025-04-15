@@ -1,6 +1,6 @@
 # AMTracker
 
-ESP32-based project to visualize subway trains in Genoa, Italy in realtime based on real schedules provided by the local transport agency (AMT).
+ESP32-based project to visualize subway trains in Genoa, Italy in realtime based on real schedules provided by the local transport agency.
 
 ## Description
 

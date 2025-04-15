@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.c"
     INCLUDE_DIRS "."
-    REQUIRES spiffs nvs_flash ntp_client schedule train esp_driver_gpio
+    REQUIRES spiffs nvs_flash ntp_client schedule train esp_driver_gpio esp_driver_gptimer sn74hc595
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory

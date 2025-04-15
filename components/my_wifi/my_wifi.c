@@ -5,8 +5,8 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 
-#define SSID ""
-#define PWD ""
+#define SSID "Redmi Note 7"
+#define PWD "brutto555"
 
 // event group to contain status information
 static EventGroupHandle_t wifi_event_group;

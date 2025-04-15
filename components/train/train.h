@@ -17,7 +17,7 @@ typedef enum{
     BRIN_DINEGRO,
     DINEGRO_PRINCIPE,
     PRINCIPE_DARSENA,
-    DARSENA_SANGIORGO,
+    DARSENA_SANGIORGIO,
     SANGIORGIO_SARZANO,
     SARZANO_DEFERRARI,
     DEFERRARI_BIRGNOLE
@@ -38,10 +38,13 @@ typedef struct{
 } train_t;
 
 typedef struct{
+    train_t* train;
     checkpoint_t pos;
     float perc;
 } train_position_t;
 
 void print_train(const train_t* t);
+bool is_station(checkpoint_t c);
+bool line_cmp(const line_t* l1, const line_t* l2);
 
 #endif

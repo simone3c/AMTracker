@@ -1,29 +1,118 @@
 #include <stdio.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
 #include <time.h>
-#include "freertos/FreeRTOSConfig.h"
-#include <esp_err.h>
-#include <nvs_flash.h>
 #include <string.h>
 #include <inttypes.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOSConfig.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "esp_err.h"
+#include "driver/gpio.h"
+#include "driver/gptimer.h"
+#include "esp_log.h"
 #include "esp_spiffs.h"
 
 #include "my_wifi.h"
 #include "ntp_client.h"
 #include "schedule.h"
 #include "train.h"
+#include "sn74hc595.h"
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
 #define STOPS_NUM 8
 #define TRAINS_NUM 801
+#define MAX_ACTIVE_TRAINS 32
 
 #define DATA 14
-#define LATCH 13
-#define CLK 12
+#define CLK 13
+#define LATCH 12
+void sn74hc595_set_clk_pin(bool v){
+    gpio_set_level(CLK, v);
+}
+void sn74hc595_set_data_pin(bool v){
+    gpio_set_level(DATA, v);
+}
+void sn74hc595_set_latch_pin(bool v){
+    gpio_set_level(LATCH, v);
+}
+
+typedef struct{
+    uint8_t row;
+    uint8_t col;
+    uint8_t relative_id;
+    checkpoint_t pos;
+    checkpoint_t dest;
+} led_t;
+const led_t LEDS[] = {
+    // stations
+    {0, 0, 0, BRIN, BRIGNOLE},
+    {0, 1, 0, DINEGRO, BRIGNOLE},
+    {0, 2, 0, PRINCIPE, BRIGNOLE},
+    {0, 3, 0, DARSENA, BRIGNOLE},
+    {0, 4, 0, SANGIORGIO, BRIGNOLE},
+    {0, 5, 0, SARZANO, BRIGNOLE},
+    {0, 6, 0, DEFERRARI, BRIGNOLE},
+    {0, 7, 0, BRIGNOLE, BRIGNOLE},
+    // intermediate points
+    {1, 0, 0, BRIN_DINEGRO, BRIGNOLE},
+    {1, 1, 1, BRIN_DINEGRO, BRIGNOLE},
+    {1, 2, 2, BRIN_DINEGRO, BRIGNOLE},
+    {1, 3, 3, BRIN_DINEGRO, BRIGNOLE},
+    {1, 4, 4, BRIN_DINEGRO, BRIGNOLE},
+    {1, 5, 5, BRIN_DINEGRO, BRIGNOLE},
+    {1, 6, 0, DINEGRO_PRINCIPE, BRIGNOLE},
+    {1, 7, 1, DINEGRO_PRINCIPE, BRIGNOLE},
+    {2, 0, 0, PRINCIPE_DARSENA, BRIGNOLE},
+    {2, 1, 1, PRINCIPE_DARSENA, BRIGNOLE},
+    {2, 2, 0, DARSENA_SANGIORGIO, BRIGNOLE},
+    {2, 3, 1, DARSENA_SANGIORGIO, BRIGNOLE},
+    {2, 4, 0, SANGIORGIO_SARZANO, BRIGNOLE},
+    {2, 5, 1, SANGIORGIO_SARZANO, BRIGNOLE},
+    {2, 6, 0, SARZANO_DEFERRARI, BRIGNOLE},
+    {2, 7, 1, SARZANO_DEFERRARI, BRIGNOLE},
+    {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
+    {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
+    {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
+
+
+
+
+    // stations
+    {7, 0, 0, BRIN, BRIN},
+    {7, 1, 0, DINEGRO, BRIN},
+    {7, 2, 0, PRINCIPE, BRIN},
+    {7, 3, 0, DARSENA, BRIN},
+    {7, 4, 0, SANGIORGIO, BRIN},
+    {7, 5, 0, SARZANO, BRIN},
+    {7, 6, 0, DEFERRARI, BRIN},
+    {7, 7, 0, BRIGNOLE, BRIN},
+    // intermediate points
+    {6, 0, 0, DEFERRARI_BIRGNOLE, BRIN},
+    {6, 1, 1, DEFERRARI_BIRGNOLE, BRIN},
+    {6, 2, 2, DEFERRARI_BIRGNOLE, BRIN},
+    {6, 3, 0, SARZANO_DEFERRARI, BRIN},
+    {6, 4, 1, SARZANO_DEFERRARI, BRIN},
+    {6, 5, 0, SANGIORGIO_SARZANO, BRIN},
+    {6, 6, 1, SANGIORGIO_SARZANO, BRIN},
+    {6, 7, 0, DARSENA_SANGIORGIO, BRIN},
+    {5, 0, 1, DARSENA_SANGIORGIO, BRIN},
+    {5, 1, 0, PRINCIPE_DARSENA, BRIN},
+    {5, 2, 1, PRINCIPE_DARSENA, BRIN},
+    {5, 3, 0, DINEGRO_PRINCIPE, BRIN},
+    {5, 4, 1, DINEGRO_PRINCIPE, BRIN},
+    {5, 5, 0, BRIN_DINEGRO, BRIN},
+    {5, 6, 1, BRIN_DINEGRO, BRIN},
+    {5, 7, 2, BRIN_DINEGRO, BRIN},
+    {4, 0, 3, BRIN_DINEGRO, BRIN},
+    {4, 1, 4, BRIN_DINEGRO, BRIN},
+    {4, 2, 5, BRIN_DINEGRO, BRIN},
+};
+
+// encode the matrix content in 8 bytes
+typedef uint64_t matrix_queue_elem_t;
+
+QueueHandle_t matrix_queue;
 
 const line_t BRIN_BRIGNOLE = {
     .name = "brin_brignole",
@@ -39,7 +128,7 @@ const line_t BRIN_BRIGNOLE = {
         BRIN_DINEGRO,
         DINEGRO_PRINCIPE,
         PRINCIPE_DARSENA,
-        DARSENA_SANGIORGO,
+        DARSENA_SANGIORGIO,
         SANGIORGIO_SARZANO,
         SARZANO_DEFERRARI,
         DEFERRARI_BIRGNOLE,
@@ -61,7 +150,7 @@ const line_t BRIGNOLE_BRIN = {
         DEFERRARI_BIRGNOLE,
         SARZANO_DEFERRARI,
         SANGIORGIO_SARZANO,
-        DARSENA_SANGIORGO,
+        DARSENA_SANGIORGIO,
         PRINCIPE_DARSENA,
         DINEGRO_PRINCIPE,
         BRIN_DINEGRO,
@@ -178,7 +267,9 @@ void get_active_trains(const schedule_t* now_sched, day_t day, train_t** active_
 
 void calc_train_position(const train_t* ptr, const schedule_t* now_sched, train_position_t* train_pos){
 
-    memset(train_pos, 0, sizeof(train_position_t));
+    memset(train_pos, 0, sizeof(*train_pos));
+
+    train_pos->train = ptr;
 
     // check if train is stopped in a station
     for(int j = 0; j < STOPS_NUM; ++j){
@@ -199,67 +290,120 @@ void calc_train_position(const train_t* ptr, const schedule_t* now_sched, train_
 
 }
 
-void update_position(){
+// TODO data size
+void matrix_write(uint8_t row, uint8_t col){
+    uint8_t data[] = {col, row};
+    sn74hc595_write(data, 2, false);
+}
 
-    // TODO adust array size
-    #define max_active_trains 32
-    train_t* active_trains[max_active_trains];
-    size_t active_trains_len = 0;
+// roe is between 0 and 7 - col is between 0 and 7
+void matrix_draw_line(uint8_t row, uint8_t col){
+    // bit-wise not is needed because the matrix is in common anode
+    matrix_write(1 << row, ~col);
+}
 
-    train_position_t train_pos[max_active_trains] = {0};
+// todo maybe transform in a lookup table
+uint8_t checkpoint_to_display_coord(checkpoint_t c){
 
-    while(4){
+    switch(c){
+        case BRIN:
+        case BRIN_DINEGRO:
+            return 1;
 
-        const time_t now_seconds = time(0);
-        struct tm now;
-        localtime_r(&now_seconds, &now);
-        schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
-        //now_sched = (schedule_t){0, 55, 21};
+        case DINEGRO:
+        case DINEGRO_PRINCIPE:
+            return 1 << 1;
 
-        ESP_LOGI("update_position", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
+        case PRINCIPE:
+        case PRINCIPE_DARSENA:
+            return 1 << 2;
 
-        day_t day = MON_FRI;
-            if(now.tm_wday == 6)
-                day = SATURDAY;
-            else if(!now.tm_wday)
-                day = SUNDAY;
+        case DARSENA:
+        case DARSENA_SANGIORGIO:
+            return 1 << 3;
 
-        get_active_trains(&now_sched, day, active_trains, &active_trains_len, max_active_trains);
+        case SANGIORGIO:
+        case SANGIORGIO_SARZANO:
+            return 1 << 4;
 
-        for(int i = 0; i < active_trains_len; ++i){
-            //print_train(active_trains[i]);
-            calc_train_position(active_trains[i], &now_sched, &train_pos[i]);
-            ESP_LOGI("update_position", "position of train [%i] is %i @ %.2f%%", active_trains[i]->id, train_pos[i].pos, 100 * train_pos[i].perc);
+        case SARZANO:
+        case SARZANO_DEFERRARI:
+            return 1 << 5;
+
+        case DEFERRARI:
+        case DEFERRARI_BIRGNOLE:
+            return 1 << 6;
+
+        case BRIGNOLE:
+            return 1 << 7;
+
+        default:
+            ESP_LOGE("shader", "is_station case -- unreachable!!");
+    }
+
+    return 0;
+}
+
+void shader(train_position_t* active_trains, size_t sz, matrix_queue_elem_t* out){
+    *out = 0;
+    for(int i = 0; i < sz; ++i){
+        uint8_t row = 10, col = 10;
+        ESP_LOGI("shader", "id: %i", active_trains[i].train->id);
+
+        uint8_t len;
+        switch (active_trains[i].pos){
+        case DINEGRO_PRINCIPE:
+        case PRINCIPE_DARSENA:
+        case DARSENA_SANGIORGIO:
+        case SANGIORGIO_SARZANO:
+        case SARZANO_DEFERRARI:
+            len = 2;
+            break;
+        case BRIN_DINEGRO:
+            len = 6;
+            break;
+        case DEFERRARI_BIRGNOLE:
+            len = 3;
+            break;
+        default:
+            len = 0;
+            break;
         }
 
-        // send positions and perc to a queue to be printed on LED
+        uint8_t id = active_trains[i].perc * len;
+        checkpoint_t dest = active_trains[i].train->line->path[active_trains[i].train->line->stops_num - 1];
+        checkpoint_t pos = active_trains[i].pos;
 
+        for(int j = 0; j < sizeof(LEDS) / sizeof(LEDS[0]); ++j){
+            if(LEDS[j].dest == dest
+                && LEDS[j].pos == pos
+                && LEDS[j].relative_id == id
+            ){
+                row = LEDS[j].row;
+                col = LEDS[j].col;
+                break;
+            }
+        }
+        
+        ESP_LOGI("shader", "row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, row, col, id);
 
-        vTaskDelay(MSEC(2000));
-
+        *out |= ((uint64_t)1 << col) << (8 * row);
     }
-
 }
 
-void shift_write(uint8_t data){
-    gpio_set_level(LATCH, 0);
-    gpio_set_level(CLK, 0);
-    for(int i = 0; i < 8; ++i){
-        gpio_set_level(DATA, data & (1 << i));
+static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
 
-        gpio_set_level(CLK, 1);
-        gpio_set_level(CLK, 0);
+    static matrix_queue_elem_t data = 0;
+    static uint8_t row = 0;
 
-    }
-    gpio_set_level(LATCH, 1);
-    gpio_set_level(LATCH, 0);
-}
+    xQueuePeekFromISR(matrix_queue, &data);
 
-void draw_position(){
+    matrix_draw_line(row, (data >> (8 * row)) & 0xFF);
+    
+    if(++row > 7)
+        row = 0;
 
-
-
-
+    return 1;
 }
 
 void app_main(void){
@@ -272,22 +416,36 @@ void app_main(void){
     };
     ESP_ERROR_CHECK(gpio_config(&pin_cfg));
 
-    int a = 1;
-    int t = 10;
-    uint8_t data = 0b01100110;
-    while(4){
+    matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
 
-        shift_write(data);
-        return;
+    gptimer_config_t timer_cfg = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000, // 1MHz
+        .intr_priority = 0,
+        .flags = {0},
+    };
+    gptimer_handle_t timer;
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &timer));
 
-        vTaskDelay(MSEC(t));
-        shift_write(0);
-        vTaskDelay(MSEC(t));
+    gptimer_alarm_config_t timer_alarm = {
+        .alarm_count = 2000, // 2ms period with 1MHz timer freq (emprical value)
+        .reload_count = 0,
+        .flags = {
+            .auto_reload_on_alarm = true
+        }
+    };
+
+    gptimer_event_callbacks_t cb = {
+        .on_alarm = draw
+    };
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &timer_alarm));
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
+
+    ESP_ERROR_CHECK(gptimer_enable(timer));
+    gptimer_start(timer);
 
 
-    }
-
-/*
     setup_wifi();
     if(get_ntp_clock())
     // set led error and exit
@@ -313,7 +471,47 @@ void app_main(void){
         //turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
 
-    update_position();
-*/
+   
+    while(4){
+        
+        train_t* active_trains[MAX_ACTIVE_TRAINS] = {0};
+        size_t active_trains_len = 0;
+        train_position_t train_pos[MAX_ACTIVE_TRAINS] = {0};
 
+
+        const time_t now_seconds = time(0);
+        struct tm now;
+        localtime_r(&now_seconds, &now);
+        schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
+        //now_sched = (schedule_t){18, 26, 21};
+
+        ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
+
+        day_t day = MON_FRI;
+        if(now.tm_wday == 6)
+            day = SATURDAY;
+        else if(!now.tm_wday)
+            day = SUNDAY;
+
+        get_active_trains(&now_sched, day, active_trains, &active_trains_len, MAX_ACTIVE_TRAINS);
+
+        for(int i = 0; i < active_trains_len; ++i){
+            //print_train(active_trains[i]);
+            calc_train_position(active_trains[i], &now_sched, &train_pos[i]);
+            ESP_LOGI("main", "position of train [%i] running on %s is %i @ %.2f%%", 
+                train_pos[i].train->id, 
+                train_pos[i].train->line->name,
+                train_pos[i].pos, 
+                100 * train_pos[i].perc                
+            );
+        }
+
+        // convert from station and percentage to rows and columns of the LED matrix
+        matrix_queue_elem_t matrix_data;
+        shader(train_pos, active_trains_len, &matrix_data);
+        xQueueOverwrite(matrix_queue, &matrix_data);
+
+        vTaskDelay(MSEC(2000));
+    }
+    
 }
