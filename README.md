@@ -27,7 +27,11 @@ The project is developed on ESP-IDF v5.4.1 and it's tested on an ESP32-WROVER-E.
 
 ### Timetable
 
-__TODO__
+The timetable are stored inside ```data/stop_times.txt``` and can be freely downloaded from the local transport agency's website. To transform them in the correct format used in this project you need to run the python script ```data/timetable.py```:
+```bash
+    > python3 timetable.py stop_times.txt
+```
+This operation will produce the file ```stop_times_fixed.csv``` which should be moved inside ```spiffs_root```
 
 ### Installing and building
 

@@ -342,7 +342,6 @@ const char* checkpoint_str_map[] = {
 
 void app_main(void){
 
-    ESP_LOGI("dd", "aaaa");
     gpio_config_t pin_cfg = {
         .pin_bit_mask = (1 << DATA) | (1 << CLK) | (1 << LATCH),
         .mode = GPIO_MODE_OUTPUT,
@@ -397,7 +396,7 @@ void app_main(void){
     };
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
 
-    FILE* t = fopen("/spiffs_root/stop_fixed.csv", "r");
+    FILE* t = fopen("/spiffs_root/stop_times_fixed.csv", "r");
 
     if(t == NULL){
         ESP_LOGE("main", "file: %s", strerror(errno));
@@ -416,7 +415,7 @@ void app_main(void){
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
-        now_sched = (schedule_t){18, 26, 21};
+        //now_sched = (schedule_t){18, 26, 21};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 
