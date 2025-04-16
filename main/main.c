@@ -258,7 +258,7 @@ void matrix_draw(uint8_t row, uint8_t cols){
     sn74hc595_write(data, 2, false);
 }
 
-bool train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
+void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
 
     ESP_LOGI("train_to_led", "id: %i", train->id);
 
@@ -278,9 +278,9 @@ bool train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         len = 3;
         break;
     default:
-    // ! ERROR
+        // train in station
         len = 0;
-        return false;
+        break;
     }
 
     uint8_t id = train->status.position.perc * len;
@@ -295,11 +295,9 @@ bool train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
             *row = LEDS[j].row;
             *col = LEDS[j].col;
             ESP_LOGI("train_to_led", "row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, *row, *col, id);
-            return true;
+            return;
         }
-    }
-    
-    return false;
+    }   
 }
 
 // for limiting current and limitations due tio the matrix's structure (common anode), 
@@ -415,7 +413,7 @@ void app_main(void){
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
-        //now_sched = (schedule_t){18, 26, 21};
+        now_sched = (schedule_t){23, 26, 0};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 

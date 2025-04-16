@@ -13,7 +13,7 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] train localization
 - [x] train display
 - [ ] power management (for longer battery life)
-- [ ] UI (refresh rate - wifi connection - ???)
+- [ ] UI (power button - errors - refresh rate - wifi connection - ???)
 - [ ] PCB
 - [ ] ???
 
