@@ -21,7 +21,7 @@
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
 #define STOPS_NUM 8
-#define TRAINS_NUM 801
+#define MAX_TRAINS_NUM 1024
 #define MAX_ACTIVE_TRAINS 32
 
 #define DATA 14
@@ -74,9 +74,6 @@ const led_t LEDS[] = {
     {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
     {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
     {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
-
-
-
 
     // stations
     {7, 0, 0, BRIN, BRIN},
@@ -158,20 +155,24 @@ const line_t BRIGNOLE_BRIN = {
     .stops_num = STOPS_NUM
 };
 
-static train_t trains[TRAINS_NUM] = {0};
-
 // TODO LED in case of error
-int read_schedule(FILE* f){
+int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
 
+    unsigned trains_num;
     int idx = 0;
     uint8_t h, m, s;
     char* line = NULL;
     size_t line_len = 0;
 
-    // csv description line
+    // number of trains
     __getline(&line, &line_len, f);
+    trains_num = atoi(line);
 
-    while(idx < TRAINS_NUM){
+    assert(trains_num <= max_sz);
+
+    *sz = trains_num;
+
+    while(idx < trains_num){
         free(line);
         line = NULL;
         line_len = 0;
@@ -248,157 +249,72 @@ int read_schedule(FILE* f){
     return 0;
 }
 
-void get_active_trains(const schedule_t* now_sched, day_t day, train_t** active_trains, size_t* len, size_t max_size){
-
-    memset(active_trains, 0, max_size);
-    *len = 0;
-
-    for(int i = 0; i < TRAINS_NUM; ++i){
-
-        if(trains[i].day != day)
-            continue;
-
-        if(is_between(&trains[i].arrival[0], &trains[i].departure[STOPS_NUM - 1], *now_sched)){
-            //ESP_LOGI("get_active_trains", "found an active train: %i", trains[i].id);
-            active_trains[(*len)++] = &trains[i];
-        }
-    }
-}
-
-void calc_train_position(const train_t* ptr, const schedule_t* now_sched, train_position_t* train_pos){
-
-    memset(train_pos, 0, sizeof(*train_pos));
-
-    train_pos->train = ptr;
-
-    // check if train is stopped in a station
-    for(int j = 0; j < STOPS_NUM; ++j){
-        if(is_between(&ptr->arrival[j], &ptr->departure[j], *now_sched)){
-            train_pos->pos = ptr->line->path[j];
-            train_pos->perc = 0.;
-            return;
-        }
-    }
-
-    // check if train is moving between 2 stations
-    for(int j = 0; j < STOPS_NUM - 1; ++j){
-        if(is_between(&ptr->departure[j], &ptr->arrival[j + 1], *now_sched)){
-            train_pos->pos = ptr->line->path[j + STOPS_NUM];
-            train_pos->perc = get_percentage(&ptr->departure[j], &ptr->arrival[j + 1], *now_sched);
-        }
-    }
-
-}
-
-// TODO data size
-void matrix_write(uint8_t row, uint8_t col){
-    uint8_t data[] = {col, row};
+// row and cols are bitmaps that select which row and columns to light up.
+// row contains "1" for the row to be lit up
+// cols contains "0" for the columns to be lit up (due to common anode)
+void matrix_draw(uint8_t row, uint8_t cols){
+    // bit-wise not is needed because the matrix is in common anode
+    uint8_t data[] = {~cols, row};
     sn74hc595_write(data, 2, false);
 }
 
-// roe is between 0 and 7 - col is between 0 and 7
-void matrix_draw_line(uint8_t row, uint8_t col){
-    // bit-wise not is needed because the matrix is in common anode
-    matrix_write(1 << row, ~col);
-}
+bool train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
 
-// todo maybe transform in a lookup table
-uint8_t checkpoint_to_display_coord(checkpoint_t c){
+    ESP_LOGI("train_to_led", "id: %i", train->id);
 
-    switch(c){
-        case BRIN:
-        case BRIN_DINEGRO:
-            return 1;
-
-        case DINEGRO:
-        case DINEGRO_PRINCIPE:
-            return 1 << 1;
-
-        case PRINCIPE:
-        case PRINCIPE_DARSENA:
-            return 1 << 2;
-
-        case DARSENA:
-        case DARSENA_SANGIORGIO:
-            return 1 << 3;
-
-        case SANGIORGIO:
-        case SANGIORGIO_SARZANO:
-            return 1 << 4;
-
-        case SARZANO:
-        case SARZANO_DEFERRARI:
-            return 1 << 5;
-
-        case DEFERRARI:
-        case DEFERRARI_BIRGNOLE:
-            return 1 << 6;
-
-        case BRIGNOLE:
-            return 1 << 7;
-
-        default:
-            ESP_LOGE("shader", "is_station case -- unreachable!!");
+    uint8_t len;
+    switch (train->status.position.checkpoint_pos){
+    case DINEGRO_PRINCIPE:
+    case PRINCIPE_DARSENA:
+    case DARSENA_SANGIORGIO:
+    case SANGIORGIO_SARZANO:
+    case SARZANO_DEFERRARI:
+        len = 2;
+        break;
+    case BRIN_DINEGRO:
+        len = 6;
+        break;
+    case DEFERRARI_BIRGNOLE:
+        len = 3;
+        break;
+    default:
+    // ! ERROR
+        len = 0;
+        return false;
     }
 
-    return 0;
-}
+    uint8_t id = train->status.position.perc * len;
+    checkpoint_t dest = train->line->path[train->line->stops_num - 1];
+    checkpoint_t pos = train->status.position.checkpoint_pos;
 
-void shader(train_position_t* active_trains, size_t sz, matrix_queue_elem_t* out){
-    *out = 0;
-    for(int i = 0; i < sz; ++i){
-        uint8_t row = 10, col = 10;
-        ESP_LOGI("shader", "id: %i", active_trains[i].train->id);
-
-        uint8_t len;
-        switch (active_trains[i].pos){
-        case DINEGRO_PRINCIPE:
-        case PRINCIPE_DARSENA:
-        case DARSENA_SANGIORGIO:
-        case SANGIORGIO_SARZANO:
-        case SARZANO_DEFERRARI:
-            len = 2;
-            break;
-        case BRIN_DINEGRO:
-            len = 6;
-            break;
-        case DEFERRARI_BIRGNOLE:
-            len = 3;
-            break;
-        default:
-            len = 0;
-            break;
+    for(int j = 0; j < sizeof(LEDS) / sizeof(LEDS[0]); ++j){
+        if(LEDS[j].dest == dest
+            && LEDS[j].pos == pos
+            && LEDS[j].relative_id == id
+        ){
+            *row = LEDS[j].row;
+            *col = LEDS[j].col;
+            ESP_LOGI("train_to_led", "row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, *row, *col, id);
+            return true;
         }
-
-        uint8_t id = active_trains[i].perc * len;
-        checkpoint_t dest = active_trains[i].train->line->path[active_trains[i].train->line->stops_num - 1];
-        checkpoint_t pos = active_trains[i].pos;
-
-        for(int j = 0; j < sizeof(LEDS) / sizeof(LEDS[0]); ++j){
-            if(LEDS[j].dest == dest
-                && LEDS[j].pos == pos
-                && LEDS[j].relative_id == id
-            ){
-                row = LEDS[j].row;
-                col = LEDS[j].col;
-                break;
-            }
-        }
-        
-        ESP_LOGI("shader", "row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, row, col, id);
-
-        *out |= ((uint64_t)1 << col) << (8 * row);
     }
+    
+    return false;
 }
 
+// for limiting current and limitations due tio the matrix's structure (common anode), 
+// the matrix is drawn one line at a time
 static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
-
-    static matrix_queue_elem_t data = 0;
     static uint8_t row = 0;
+    matrix_queue_elem_t data = 0;
+    uint8_t cols;
 
     xQueuePeekFromISR(matrix_queue, &data);
 
-    matrix_draw_line(row, (data >> (8 * row)) & 0xFF);
+    // row-th byte that represents the corresponding column
+    cols = (data >> (8 * row)) & 0xFF;
+
+    matrix_draw(1 << row, cols);
     
     if(++row > 7)
         row = 0;
@@ -406,7 +322,27 @@ static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata
     return 1;
 }
 
+const char* checkpoint_str_map[] = {
+    [BRIN] = "brin",
+    [DINEGRO] = "dinegro",
+    [PRINCIPE] = "principe",
+    [DARSENA] = "darsena",
+    [SANGIORGIO] = "sangiorgio",
+    [SARZANO] = "sarzano",
+    [DEFERRARI] = "deferrari",
+    [BRIGNOLE] = "brignole",
+    [BRIN_DINEGRO] = "brin_dinegro",
+    [DINEGRO_PRINCIPE] = "dinegro_principe",
+    [PRINCIPE_DARSENA] = "principe_darsena",
+    [DARSENA_SANGIORGIO] = "darsena_sangiorgio",
+    [SANGIORGIO_SARZANO] = "sangiorgio_sarzano",
+    [SARZANO_DEFERRARI] = "sarzano_deferrari",
+    [DEFERRARI_BIRGNOLE] = "deferrari_brignole"
+};
+
 void app_main(void){
+
+    ESP_LOGI("dd", "aaaa");
     gpio_config_t pin_cfg = {
         .pin_bit_mask = (1 << DATA) | (1 << CLK) | (1 << LATCH),
         .mode = GPIO_MODE_OUTPUT,
@@ -415,9 +351,9 @@ void app_main(void){
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&pin_cfg));
-
+    
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
-
+    
     gptimer_config_t timer_cfg = {
         .clk_src = GPTIMER_CLK_SRC_DEFAULT,
         .direction = GPTIMER_COUNT_UP,
@@ -427,7 +363,7 @@ void app_main(void){
     };
     gptimer_handle_t timer;
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &timer));
-
+    
     gptimer_alarm_config_t timer_alarm = {
         .alarm_count = 2000, // 2ms period with 1MHz timer freq (emprical value)
         .reload_count = 0,
@@ -435,7 +371,6 @@ void app_main(void){
             .auto_reload_on_alarm = true
         }
     };
-
     gptimer_event_callbacks_t cb = {
         .on_alarm = draw
     };
@@ -445,6 +380,9 @@ void app_main(void){
     ESP_ERROR_CHECK(gptimer_enable(timer));
     gptimer_start(timer);
 
+
+    static train_t trains[1024] = {0};
+    size_t trains_num;
 
     setup_wifi();
     if(get_ntp_clock())
@@ -467,23 +405,18 @@ void app_main(void){
     }
 
     int err;
-    if((err = read_schedule(t)))
+    if((err = read_schedule(t, trains, &trains_num, MAX_TRAINS_NUM)))
         //turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
 
    
     while(4){
         
-        train_t* active_trains[MAX_ACTIVE_TRAINS] = {0};
-        size_t active_trains_len = 0;
-        train_position_t train_pos[MAX_ACTIVE_TRAINS] = {0};
-
-
         const time_t now_seconds = time(0);
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
-        //now_sched = (schedule_t){18, 26, 21};
+        now_sched = (schedule_t){18, 26, 21};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 
@@ -493,23 +426,30 @@ void app_main(void){
         else if(!now.tm_wday)
             day = SUNDAY;
 
-        get_active_trains(&now_sched, day, active_trains, &active_trains_len, MAX_ACTIVE_TRAINS);
+        matrix_queue_elem_t led_matrix = 0;
 
-        for(int i = 0; i < active_trains_len; ++i){
-            //print_train(active_trains[i]);
-            calc_train_position(active_trains[i], &now_sched, &train_pos[i]);
-            ESP_LOGI("main", "position of train [%i] running on %s is %i @ %.2f%%", 
-                train_pos[i].train->id, 
-                train_pos[i].train->line->name,
-                train_pos[i].pos, 
-                100 * train_pos[i].perc                
-            );
+        for(int i = 0; i < trains_num; ++i){
+
+            uint8_t row, col;
+
+            update_train_status(&trains[i], &now_sched, day);
+
+            if(trains[i].status.is_active){
+                ESP_LOGI("main", "train [%i] running on %s is at %s @ %.2f%%", 
+                    trains[i].id,
+                    trains[i].line->name,
+                    checkpoint_str_map[trains[i].status.position.checkpoint_pos], 
+                    100 * trains[i].status.position.perc               
+                );
+                
+                // convert from position and percentage to rows and columns of the LED matrix
+                train_to_led(&trains[i], &row, &col);
+
+                led_matrix |= ((uint64_t)1 << col) << (8 * row);
+            }
         }
 
-        // convert from station and percentage to rows and columns of the LED matrix
-        matrix_queue_elem_t matrix_data;
-        shader(train_pos, active_trains_len, &matrix_data);
-        xQueueOverwrite(matrix_queue, &matrix_data);
+        xQueueOverwrite(matrix_queue, &led_matrix);
 
         vTaskDelay(MSEC(2000));
     }

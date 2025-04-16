@@ -6,7 +6,7 @@
 #define MAX_LINE_STOPS (10)
 
 typedef enum{
-    BRIN,
+    BRIN = 0,
     DINEGRO,
     PRINCIPE,
     DARSENA,
@@ -30,21 +30,26 @@ typedef struct{
 } line_t;
 
 typedef struct{
+    checkpoint_t checkpoint_pos;
+    float perc;
+} train_position_t;
+
+typedef struct{
+    bool is_active;
+    train_position_t position;
+} train_status_t;
+
+typedef struct{
     int id;
     schedule_t arrival[MAX_LINE_STOPS];
     schedule_t departure[MAX_LINE_STOPS];
     day_t day;
     line_t* line;
+    train_status_t status;
 } train_t;
 
-typedef struct{
-    train_t* train;
-    checkpoint_t pos;
-    float perc;
-} train_position_t;
-
-void print_train(const train_t* t);
 bool is_station(checkpoint_t c);
 bool line_cmp(const line_t* l1, const line_t* l2);
+void update_train_status(train_t* train, const schedule_t* time, day_t day);
 
 #endif

@@ -1,2 +1,4 @@
 .vscode/
 build/
+
+components/my_wifi/wifi_credentials.h
