@@ -3,6 +3,28 @@
 #include <inttypes.h>
 #include "train.h"
 
+static const char* checkpoint_str_map[] = {
+    [BRIN] = "brin",
+    [DINEGRO] = "dinegro",
+    [PRINCIPE] = "principe",
+    [DARSENA] = "darsena",
+    [SANGIORGIO] = "sangiorgio",
+    [SARZANO] = "sarzano",
+    [DEFERRARI] = "deferrari",
+    [BRIGNOLE] = "brignole",
+    [BRIN_DINEGRO] = "brin_dinegro",
+    [DINEGRO_PRINCIPE] = "dinegro_principe",
+    [PRINCIPE_DARSENA] = "principe_darsena",
+    [DARSENA_SANGIORGIO] = "darsena_sangiorgio",
+    [SANGIORGIO_SARZANO] = "sangiorgio_sarzano",
+    [SARZANO_DEFERRARI] = "sarzano_deferrari",
+    [DEFERRARI_BIRGNOLE] = "deferrari_brignole"
+};
+
+const char* checkpoint_str(checkpoint_t c){
+    return checkpoint_str_map[c];
+}
+
 bool is_station(checkpoint_t c){
     return c == BRIN || c == DINEGRO || c == PRINCIPE || c == DARSENA || 
     c == SANGIORGIO || c == SARZANO || c == DEFERRARI || c == BRIGNOLE;

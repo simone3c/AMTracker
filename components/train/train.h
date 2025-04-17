@@ -48,6 +48,7 @@ typedef struct{
     train_status_t status;
 } train_t;
 
+const char* checkpoint_str(checkpoint_t c);
 bool is_station(checkpoint_t c);
 bool line_cmp(const line_t* l1, const line_t* l2);
 void update_train_status(train_t* train, const schedule_t* time, day_t day);

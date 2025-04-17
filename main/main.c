@@ -17,12 +17,12 @@
 #include "schedule.h"
 #include "train.h"
 #include "sn74hc595.h"
+#include "led_matrix.h"
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
 #define STOPS_NUM 8
-#define MAX_TRAINS_NUM 1024
-#define MAX_ACTIVE_TRAINS 32
+#define MAX_TRAINS 1024
 
 #define DATA 14
 #define CLK 13
@@ -44,7 +44,8 @@ typedef struct{
     checkpoint_t pos;
     checkpoint_t dest;
 } led_t;
-const led_t LEDS[] = {
+
+static const led_t LEDS[] = {
     // stations
     {0, 0, 0, BRIN, BRIGNOLE},
     {0, 1, 0, DINEGRO, BRIGNOLE},
@@ -184,7 +185,7 @@ int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
 
             __getline(&line, &line_len, f);
 
-            char* tokens[7];
+            char* tokens[5];
             int tok_id = 0;
             char* aux = NULL;
             char* token = strtok_r(line, ",", &aux);
@@ -205,8 +206,6 @@ int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
                 return 2;
 
             // day
-            strtok_r(NULL, "-", &aux);
-            strtok_r(NULL, "-", &aux);
             char* period_str = strtok_r(NULL, "-", &aux);
             day_t day = SUNDAY;
             if(!strcmp(period_str, "Semaine")){
@@ -249,18 +248,8 @@ int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
     return 0;
 }
 
-// row and cols are bitmaps that select which row and columns to light up.
-// row contains "1" for the row to be lit up
-// cols contains "0" for the columns to be lit up (due to common anode)
-void matrix_draw(uint8_t row, uint8_t cols){
-    // bit-wise not is needed because the matrix is in common anode
-    uint8_t data[] = {~cols, row};
-    sn74hc595_write(data, 2, false);
-}
 
 void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
-
-    ESP_LOGI("train_to_led", "id: %i", train->id);
 
     uint8_t len;
     switch (train->status.position.checkpoint_pos){
@@ -294,7 +283,17 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         ){
             *row = LEDS[j].row;
             *col = LEDS[j].col;
-            ESP_LOGI("train_to_led", "row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, *row, *col, id);
+
+            ESP_LOGI("train_to_led", "train [%i] running on %s is at %s @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
+                train->id,
+                train->line->name,
+                checkpoint_str(train->status.position.checkpoint_pos), 
+                100 * train->status.position.perc,
+                *row,
+                *col,
+                id               
+            );
+
             return;
         }
     }   
@@ -319,24 +318,6 @@ static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata
 
     return 1;
 }
-
-const char* checkpoint_str_map[] = {
-    [BRIN] = "brin",
-    [DINEGRO] = "dinegro",
-    [PRINCIPE] = "principe",
-    [DARSENA] = "darsena",
-    [SANGIORGIO] = "sangiorgio",
-    [SARZANO] = "sarzano",
-    [DEFERRARI] = "deferrari",
-    [BRIGNOLE] = "brignole",
-    [BRIN_DINEGRO] = "brin_dinegro",
-    [DINEGRO_PRINCIPE] = "dinegro_principe",
-    [PRINCIPE_DARSENA] = "principe_darsena",
-    [DARSENA_SANGIORGIO] = "darsena_sangiorgio",
-    [SANGIORGIO_SARZANO] = "sangiorgio_sarzano",
-    [SARZANO_DEFERRARI] = "sarzano_deferrari",
-    [DEFERRARI_BIRGNOLE] = "deferrari_brignole"
-};
 
 void app_main(void){
 
@@ -378,7 +359,7 @@ void app_main(void){
     gptimer_start(timer);
 
 
-    static train_t trains[1024] = {0};
+    static train_t trains[MAX_TRAINS] = {0};
     size_t trains_num;
 
     setup_wifi();
@@ -402,7 +383,7 @@ void app_main(void){
     }
 
     int err;
-    if((err = read_schedule(t, trains, &trains_num, MAX_TRAINS_NUM)))
+    if((err = read_schedule(t, trains, &trains_num, MAX_TRAINS)))
         //turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
 
@@ -413,7 +394,8 @@ void app_main(void){
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
-        now_sched = (schedule_t){23, 26, 0};
+        // set to a preferred time for testing purposes
+        now_sched = (schedule_t){11, 3, 5};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 
@@ -432,12 +414,6 @@ void app_main(void){
             update_train_status(&trains[i], &now_sched, day);
 
             if(trains[i].status.is_active){
-                ESP_LOGI("main", "train [%i] running on %s is at %s @ %.2f%%", 
-                    trains[i].id,
-                    trains[i].line->name,
-                    checkpoint_str_map[trains[i].status.position.checkpoint_pos], 
-                    100 * trains[i].status.position.perc               
-                );
                 
                 // convert from position and percentage to rows and columns of the LED matrix
                 train_to_led(&trains[i], &row, &col);
