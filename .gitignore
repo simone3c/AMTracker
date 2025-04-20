@@ -2,3 +2,4 @@
 build/
 
 components/my_wifi/wifi_credentials.h
+spiffs_root/*

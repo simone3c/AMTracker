@@ -27,8 +27,14 @@ with open(argv[1], 'r') as csv:
                 m %= 60
 
             # print(f"{row['departure_time']} -> {h:02}:{m:02}:{s:02}")
-
-            row["trip_id"] = "-".join([row["trip_id"].split("-")[0], row["trip_id"].split("-")[3]])
+            if row["trip_id"].split("-")[3] == "Semaine":
+                row['day'] = "Mon_Fri"
+            elif row["trip_id"].split("-")[3] == "Samedi":
+                row['day'] = "Sat"
+            else:
+                row['day'] = "Sun"
+                
+            row["trip_id"] = row["trip_id"].split("-")[0]
             row['departure_time'] = f"{h:02}:{m:02}:{s:02}"
             row.pop("pickup_type")
             row.pop("drop_off_type")
@@ -36,6 +42,6 @@ with open(argv[1], 'r') as csv:
             new_lines.append(new_row + "\n")
 
         csv_out.write(str(len(ids)) + "\n")
-        # csv_out.write("trip_id,arrival_time,departure_time,stop_id,stop_sequence\n")
+        # csv_out.write("trip_id,arrival_time,departure_time,stop_id,stop_sequence,day\n")
         csv_out.writelines(new_lines)
 

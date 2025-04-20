@@ -12,8 +12,9 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] timetable parser
 - [x] train localization
 - [x] train display
+- [ ] errors handling during startup (no wifi - ntp sync fail - ...)
 - [ ] power management (for longer battery life)
-- [ ] UI (power button - errors - refresh rate - wifi connection - ???)
+- [ ] UI (power button - errors - refresh rate - wifi connection - ...)
 - [ ] PCB
 - [ ] ???
 

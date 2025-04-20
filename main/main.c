@@ -23,6 +23,7 @@
 
 #define STOPS_NUM 8
 #define MAX_TRAINS 1024
+#define CSV_FIELDS 6
 
 #define DATA 14
 #define CLK 13
@@ -44,68 +45,6 @@ typedef struct{
     checkpoint_t pos;
     checkpoint_t dest;
 } led_t;
-
-static const led_t LEDS[] = {
-    // stations
-    {0, 0, 0, BRIN, BRIGNOLE},
-    {0, 1, 0, DINEGRO, BRIGNOLE},
-    {0, 2, 0, PRINCIPE, BRIGNOLE},
-    {0, 3, 0, DARSENA, BRIGNOLE},
-    {0, 4, 0, SANGIORGIO, BRIGNOLE},
-    {0, 5, 0, SARZANO, BRIGNOLE},
-    {0, 6, 0, DEFERRARI, BRIGNOLE},
-    {0, 7, 0, BRIGNOLE, BRIGNOLE},
-    // intermediate points
-    {1, 0, 0, BRIN_DINEGRO, BRIGNOLE},
-    {1, 1, 1, BRIN_DINEGRO, BRIGNOLE},
-    {1, 2, 2, BRIN_DINEGRO, BRIGNOLE},
-    {1, 3, 3, BRIN_DINEGRO, BRIGNOLE},
-    {1, 4, 4, BRIN_DINEGRO, BRIGNOLE},
-    {1, 5, 5, BRIN_DINEGRO, BRIGNOLE},
-    {1, 6, 0, DINEGRO_PRINCIPE, BRIGNOLE},
-    {1, 7, 1, DINEGRO_PRINCIPE, BRIGNOLE},
-    {2, 0, 0, PRINCIPE_DARSENA, BRIGNOLE},
-    {2, 1, 1, PRINCIPE_DARSENA, BRIGNOLE},
-    {2, 2, 0, DARSENA_SANGIORGIO, BRIGNOLE},
-    {2, 3, 1, DARSENA_SANGIORGIO, BRIGNOLE},
-    {2, 4, 0, SANGIORGIO_SARZANO, BRIGNOLE},
-    {2, 5, 1, SANGIORGIO_SARZANO, BRIGNOLE},
-    {2, 6, 0, SARZANO_DEFERRARI, BRIGNOLE},
-    {2, 7, 1, SARZANO_DEFERRARI, BRIGNOLE},
-    {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
-    {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
-    {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
-
-    // stations
-    {7, 0, 0, BRIN, BRIN},
-    {7, 1, 0, DINEGRO, BRIN},
-    {7, 2, 0, PRINCIPE, BRIN},
-    {7, 3, 0, DARSENA, BRIN},
-    {7, 4, 0, SANGIORGIO, BRIN},
-    {7, 5, 0, SARZANO, BRIN},
-    {7, 6, 0, DEFERRARI, BRIN},
-    {7, 7, 0, BRIGNOLE, BRIN},
-    // intermediate points
-    {6, 0, 0, DEFERRARI_BIRGNOLE, BRIN},
-    {6, 1, 1, DEFERRARI_BIRGNOLE, BRIN},
-    {6, 2, 2, DEFERRARI_BIRGNOLE, BRIN},
-    {6, 3, 0, SARZANO_DEFERRARI, BRIN},
-    {6, 4, 1, SARZANO_DEFERRARI, BRIN},
-    {6, 5, 0, SANGIORGIO_SARZANO, BRIN},
-    {6, 6, 1, SANGIORGIO_SARZANO, BRIN},
-    {6, 7, 0, DARSENA_SANGIORGIO, BRIN},
-    {5, 0, 1, DARSENA_SANGIORGIO, BRIN},
-    {5, 1, 0, PRINCIPE_DARSENA, BRIN},
-    {5, 2, 1, PRINCIPE_DARSENA, BRIN},
-    {5, 3, 0, DINEGRO_PRINCIPE, BRIN},
-    {5, 4, 1, DINEGRO_PRINCIPE, BRIN},
-    {5, 5, 0, BRIN_DINEGRO, BRIN},
-    {5, 6, 1, BRIN_DINEGRO, BRIN},
-    {5, 7, 2, BRIN_DINEGRO, BRIN},
-    {4, 0, 3, BRIN_DINEGRO, BRIN},
-    {4, 1, 4, BRIN_DINEGRO, BRIN},
-    {4, 2, 5, BRIN_DINEGRO, BRIN},
-};
 
 // encode the matrix content in 8 bytes
 typedef uint64_t matrix_queue_elem_t;
@@ -156,8 +95,18 @@ const line_t BRIGNOLE_BRIN = {
     .stops_num = STOPS_NUM
 };
 
-// TODO LED in case of error
-int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
+typedef enum{
+    OK,
+    PARSER_GETLINE,
+    TOO_MANY_TRAINS,
+    CSV_LINE_FORMAT,
+    CSV_ORDER,
+
+
+} internal_err_t;
+
+// assumes that lines relative to the same train come back-to-back
+internal_err_t read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
 
     unsigned trains_num;
     int idx = 0;
@@ -166,61 +115,48 @@ int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
     size_t line_len = 0;
 
     // number of trains
-    __getline(&line, &line_len, f);
+    if(__getline(&line, &line_len, f) < 1)
+        return PARSER_GETLINE;
     trains_num = atoi(line);
-
-    assert(trains_num <= max_sz);
-
+    if(trains_num > max_sz)
+        return TOO_MANY_TRAINS;
     *sz = trains_num;
 
+    char* tokens[CSV_FIELDS] = {0};
+
+    // ESP_LOGI("read_schedule", "%i - %s", trains_num, line);
+
     while(idx < trains_num){
-        free(line);
-        line = NULL;
-        line_len = 0;
 
         int train_id_check = 0;
 
         for(int i = 0; i < STOPS_NUM; ++i){
             int stop_idx = 0;
 
-            __getline(&line, &line_len, f);
+            if(__getline(&line, &line_len, f) < 1)
+                return PARSER_GETLINE;
 
-            char* tokens[5];
-            int tok_id = 0;
+            size_t tok_id = 0;
             char* aux = NULL;
-            char* token = strtok_r(line, ",", &aux);
-            while(token){
+            char* token = strtok_r(line, ",\n", &aux);
+            while(token && tok_id < CSV_FIELDS){
                 tokens[tok_id++] = token;
-                token = strtok_r(NULL, ",", &aux);
-                //ESP_LOGI("read_schedule", "tokens[%i]: %s -- ", tok_id - 1, tokens[tok_id - 1]);
+                token = strtok_r(NULL, ",\n", &aux);
             }
+            if(tok_id != CSV_FIELDS)
+                return CSV_LINE_FORMAT;
 
-            // id
+            // train ID
             aux = NULL;
-            int train_id = atoi(strtok_r(tokens[0], "-", &aux));
-
-            if(!i)
-                train_id_check = train_id;
+            int train_id = atoi(tokens[0]);
             // CSV is not correctly sorted
-            else if(train_id != train_id_check)
-                return 2;
-
-            // day
-            char* period_str = strtok_r(NULL, "-", &aux);
-            day_t day = SUNDAY;
-            if(!strcmp(period_str, "Semaine")){
-                day = MON_FRI;
-            }
-            else if(!strcmp(period_str, "Samedi"))
-                day = SATURDAY;
-
-            trains[idx].id = train_id;
-            trains[idx].day = day;
-
+            if(i && train_id != train_id_check)
+                return CSV_ORDER;
+            
+            train_id_check = train_id;
+            
             // stop index
             stop_idx = atoi(tokens[4]) - 1;
-            if(stop_idx > 7)
-                return 1;
 
             // arrival
             aux = NULL;
@@ -228,28 +164,101 @@ int read_schedule(FILE* f, train_t* trains, size_t* sz, size_t max_sz){
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
             trains[idx].arrival[stop_idx] = (schedule_t){h, m, s};
-
+            
             // departure
             aux = NULL;
             h = atoi(strtok_r(tokens[2], ":", &aux));
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
             trains[idx].departure[stop_idx] = (schedule_t){h, m, s};
-
+            
             // line
-            if(stop_idx == 0){
+            if(!stop_idx)
                 trains[idx].line = !strcmp(tokens[3], "MM08") ? &BRIGNOLE_BRIN : &BRIN_BRIGNOLE;
-            }
+            
+            // day
+            char* day_str = tokens[5];
+            day_t day = SUNDAY;
+            if(!strcmp(day_str, "Mon_Fri"))
+                day = MON_FRI;
+            else if(!strcmp(day_str, "Sat"))
+                day = SATURDAY;
+
+            trains[idx].id = train_id;
+            trains[idx].day = day;
         }
 
         ++idx;
     }
 
-    return 0;
+    free(line);
+
+    return OK;
 }
 
-
 void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
+
+    static const led_t LEDS[] = {
+        // stations
+        {0, 0, 0, BRIN, BRIGNOLE},
+        {0, 1, 0, DINEGRO, BRIGNOLE},
+        {0, 2, 0, PRINCIPE, BRIGNOLE},
+        {0, 3, 0, DARSENA, BRIGNOLE},
+        {0, 4, 0, SANGIORGIO, BRIGNOLE},
+        {0, 5, 0, SARZANO, BRIGNOLE},
+        {0, 6, 0, DEFERRARI, BRIGNOLE},
+        {0, 7, 0, BRIGNOLE, BRIGNOLE},
+        // intermediate points
+        {1, 0, 0, BRIN_DINEGRO, BRIGNOLE},
+        {1, 1, 1, BRIN_DINEGRO, BRIGNOLE},
+        {1, 2, 2, BRIN_DINEGRO, BRIGNOLE},
+        {1, 3, 3, BRIN_DINEGRO, BRIGNOLE},
+        {1, 4, 4, BRIN_DINEGRO, BRIGNOLE},
+        {1, 5, 5, BRIN_DINEGRO, BRIGNOLE},
+        {1, 6, 0, DINEGRO_PRINCIPE, BRIGNOLE},
+        {1, 7, 1, DINEGRO_PRINCIPE, BRIGNOLE},
+        {2, 0, 0, PRINCIPE_DARSENA, BRIGNOLE},
+        {2, 1, 1, PRINCIPE_DARSENA, BRIGNOLE},
+        {2, 2, 0, DARSENA_SANGIORGIO, BRIGNOLE},
+        {2, 3, 1, DARSENA_SANGIORGIO, BRIGNOLE},
+        {2, 4, 0, SANGIORGIO_SARZANO, BRIGNOLE},
+        {2, 5, 1, SANGIORGIO_SARZANO, BRIGNOLE},
+        {2, 6, 0, SARZANO_DEFERRARI, BRIGNOLE},
+        {2, 7, 1, SARZANO_DEFERRARI, BRIGNOLE},
+        {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
+        {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
+        {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
+    
+        // stations
+        {7, 0, 0, BRIN, BRIN},
+        {7, 1, 0, DINEGRO, BRIN},
+        {7, 2, 0, PRINCIPE, BRIN},
+        {7, 3, 0, DARSENA, BRIN},
+        {7, 4, 0, SANGIORGIO, BRIN},
+        {7, 5, 0, SARZANO, BRIN},
+        {7, 6, 0, DEFERRARI, BRIN},
+        {7, 7, 0, BRIGNOLE, BRIN},
+        // intermediate points
+        {6, 0, 0, DEFERRARI_BIRGNOLE, BRIN},
+        {6, 1, 1, DEFERRARI_BIRGNOLE, BRIN},
+        {6, 2, 2, DEFERRARI_BIRGNOLE, BRIN},
+        {6, 3, 0, SARZANO_DEFERRARI, BRIN},
+        {6, 4, 1, SARZANO_DEFERRARI, BRIN},
+        {6, 5, 0, SANGIORGIO_SARZANO, BRIN},
+        {6, 6, 1, SANGIORGIO_SARZANO, BRIN},
+        {6, 7, 0, DARSENA_SANGIORGIO, BRIN},
+        {5, 0, 1, DARSENA_SANGIORGIO, BRIN},
+        {5, 1, 0, PRINCIPE_DARSENA, BRIN},
+        {5, 2, 1, PRINCIPE_DARSENA, BRIN},
+        {5, 3, 0, DINEGRO_PRINCIPE, BRIN},
+        {5, 4, 1, DINEGRO_PRINCIPE, BRIN},
+        {5, 5, 0, BRIN_DINEGRO, BRIN},
+        {5, 6, 1, BRIN_DINEGRO, BRIN},
+        {5, 7, 2, BRIN_DINEGRO, BRIN},
+        {4, 0, 3, BRIN_DINEGRO, BRIN},
+        {4, 1, 4, BRIN_DINEGRO, BRIN},
+        {4, 2, 5, BRIN_DINEGRO, BRIN},
+    };
 
     uint8_t len;
     switch (train->status.position.checkpoint_pos){
@@ -267,7 +276,7 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         len = 3;
         break;
     default:
-        // train in station
+        // train is in station
         len = 0;
         break;
     }
@@ -360,11 +369,12 @@ void app_main(void){
 
 
     static train_t trains[MAX_TRAINS] = {0};
-    size_t trains_num;
+    static size_t trains_num;
 
     setup_wifi();
+
+    // TODO turn on error LED and exit
     if(get_ntp_clock())
-    // set led error and exit
         ESP_LOGE("main", "ERROR NTP");
 
     const esp_vfs_spiffs_conf_t spiffs_cfg = {
@@ -377,17 +387,17 @@ void app_main(void){
 
     FILE* t = fopen("/spiffs_root/stop_times_fixed.csv", "r");
 
+    // TODO turn on error LED and exit
     if(t == NULL){
         ESP_LOGE("main", "file: %s", strerror(errno));
         exit(0);
     }
 
-    int err;
-    if((err = read_schedule(t, trains, &trains_num, MAX_TRAINS)))
-        //turn on error LED and exit
+    internal_err_t err = read_schedule(t, trains, &trains_num, MAX_TRAINS);
+    if(err != OK)
+        // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
 
-   
     while(4){
         
         const time_t now_seconds = time(0);
@@ -395,7 +405,7 @@ void app_main(void){
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         // set to a preferred time for testing purposes
-        now_sched = (schedule_t){11, 3, 5};
+        // now_sched = (schedule_t){22, 26, 5};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 
@@ -414,7 +424,7 @@ void app_main(void){
             update_train_status(&trains[i], &now_sched, day);
 
             if(trains[i].status.is_active){
-                
+
                 // convert from position and percentage to rows and columns of the LED matrix
                 train_to_led(&trains[i], &row, &col);
 

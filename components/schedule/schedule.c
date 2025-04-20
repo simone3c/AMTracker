@@ -4,10 +4,6 @@
 #include <string.h>
 #include "schedule.h"
 
-
-void print_schedule(const schedule_t* s){
-    //ESP_LOGI("print_schedule", "%"PRIu8" - %"PRIu8" - %"PRIu8, s->hour, s->min, s->sec);
-}
 // 1 if s1 > s2 - 0 if equal - -1 if <
 int schedule_cmp(const schedule_t* s1, const schedule_t* s2){
 
