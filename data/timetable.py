@@ -41,7 +41,7 @@ with open(argv[1], 'r') as csv:
             new_row = ",".join(row.values())
             new_lines.append(new_row + "\n")
 
-        csv_out.write(str(len(ids)) + "\n")
-        # csv_out.write("trip_id,arrival_time,departure_time,stop_id,stop_sequence,day\n")
+        # csv_out.write(str(len(ids)) + "\n")
+        csv_out.write("trip_id,arrival_time,departure_time,stop_id,stop_sequence,day\r\n")
         csv_out.writelines(new_lines)
 
