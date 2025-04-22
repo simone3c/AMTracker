@@ -107,7 +107,7 @@ typedef enum{
 } internal_err_t;
 
 // assumes that lines relative to the same train come back-to-back
-// ! handle error while usign csv_reader
+// ! handle error while using csv_reader
 internal_err_t read_schedule(train_t* trains){
 
     size_t idx = 0;
@@ -115,7 +115,7 @@ internal_err_t read_schedule(train_t* trains){
     csv_line_t line;
 
     csv_reader_t csv;
-    int err = csv_reader_init(&csv, "/spiffs_root/stop_times_fixed.csv", ',', '\n');
+    int err = csv_reader_init(&csv, "/spiffs_root/stop_times_fixed.csv", ',');
 
     while(idx < TRAINS_NUM){
 
@@ -396,7 +396,7 @@ void app_main(void){
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         // set to a preferred time for testing purposes
-        now_sched = (schedule_t){22, 26, 5};
+        //now_sched = (schedule_t){22, 26, 5};
 
         ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
 
