@@ -21,4 +21,4 @@ idf_component_register(
 
 # NOTE: once the partiton is flashed there is no need to flash it again unless
 # a change it's made to stop_fixed.csv - decomment FLASH_IN_PROJECT in that case
-spiffs_create_partition_image(spiffs_storage ../spiffs_root FLASH_IN_PROJECT)
+spiffs_create_partition_image(spiffs_storage ../spiffs_root) # FLASH_IN_PROJECT)

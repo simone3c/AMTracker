@@ -7,14 +7,17 @@ ESP32-based project to visualize subway trains in Genoa, Italy in realtime based
 The device stores internally the timetable which is parsed to create a train list that is periodically scanned to discover trains on the subway. Every active train is then localized and finally displayed on the map. The map contains the 8 stations + some intermediate point between them to better represent the movement of each train in the network. An NTP server is periodically contacted to retrieve the current time.
 
 ## TODO list
+
 - [x] WIFI connection
 - [x] NTP support
 - [x] timetable parser
 - [x] train localization
 - [x] train display
-- [ ] errors handling during startup (no wifi - ntp sync fail - ...)
-- [ ] power management (for longer battery life)
-- [ ] UI (power button - errors - refresh rate - wifi connection - ...)
+- [ ] error handling during startup (no wifi - ntp sync fail - ...)
+- [ ] error handling during exec (wifi disconnects - ntp sync fails - ...)
+- [ ] power management
+- [ ] UI (power button - errors - train scan rate - wifi connection? - ...)
+- [ ] OTA for timetable update
 - [ ] PCB
 - [ ] ???
 

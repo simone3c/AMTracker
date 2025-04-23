@@ -60,7 +60,6 @@ esp_err_t connect_wifi(){
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    /** EVENT LOOP CRAZINESS **/
 	wifi_event_group = xEventGroupCreate();
 
     esp_event_handler_instance_t wifi_handler_event_instance;

@@ -129,11 +129,10 @@ internal_err_t read_schedule(train_t* trains){
                 return PARSER_GETLINE;
 
             char* token = NULL;
-            size_t token_len = 0;
             char* useless;
 
             // train ID
-            csv_reader_getfield(&csv, &line, "trip_id", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "trip_id", &token);
             train_id = strtol(token, &useless, 10);
             // CSV is not correctly sorted
             if(i && train_id != train_id_check)
@@ -143,13 +142,13 @@ internal_err_t read_schedule(train_t* trains){
             
             // stop index
             free(token);
-            csv_reader_getfield(&csv, &line, "stop_sequence", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "stop_sequence", &token);
             stop_idx = strtol(token, &useless, 10) - 1;
 
             // arrival
             free(token);
             char* aux = NULL;
-            csv_reader_getfield(&csv, &line, "arrival_time", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "arrival_time", &token);
             h = atoi(strtok_r(token, ":", &aux));
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
@@ -158,7 +157,7 @@ internal_err_t read_schedule(train_t* trains){
             // departure
             free(token);
             aux = NULL;
-            csv_reader_getfield(&csv, &line, "departure_time", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "departure_time", &token);
             h = atoi(strtok_r(token, ":", &aux));
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
@@ -166,13 +165,13 @@ internal_err_t read_schedule(train_t* trains){
 
             // line
             free(token);
-            csv_reader_getfield(&csv, &line, "stop_id", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "stop_id", &token);
             if(!i)
                 trains[idx].line = !strcmp(token, "MM03") ? &BRIGNOLE_BRIN : &BRIN_BRIGNOLE;
             
             // day
             free(token);
-            csv_reader_getfield(&csv, &line, "day", &token, &token_len);
+            csv_reader_getfield(&csv, &line, "day", &token);
             char* day_str = token;
             day_t day = SUNDAY;
             if(!strcmp(day_str, "Mon_Fri"))
@@ -383,7 +382,6 @@ void app_main(void){
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
 
     
-
     internal_err_t err = read_schedule(trains);
     if(err != OK)
         // TODO turn on error LED and exit
