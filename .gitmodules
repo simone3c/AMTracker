@@ -1,3 +1,3 @@
 [submodule "Csv_reader"]
-	path = components/Csv_reader/Csv_reader
+	path = components/csv_reader/csv_reader
 	url = https://github.com/simone3c/Csv_reader

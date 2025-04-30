@@ -43,6 +43,13 @@ Clone this repository
 ```bash
     > git clone https://github.com/simone3c/AMTracker.git
 ```
+and download the required Git submodules
+```bash
+    > cd AMTracker
+    > git submodule init
+    > git submoduel update --remote
+```
+
 Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros ```PSW``` and ```SSID``` in order to connect to your access point 
 
 Change the NTP server inside ```components/ntp_client/ntp_client.c``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))

@@ -11,7 +11,7 @@ idf_component_register(
         esp_driver_gptimer 
         sn74hc595 
         led_matrix 
-        Csv_reader
+        csv_reader
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory
