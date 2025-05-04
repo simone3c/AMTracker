@@ -25,7 +25,6 @@
 
 #define STOPS_NUM 8
 #define TRAINS_NUM 801
-#define CSV_FIELDS 6
 
 #define DATA 14
 #define CLK 13
@@ -108,7 +107,6 @@ typedef enum{
 } internal_err_t;
 
 // assumes that lines relative to the same train come back-to-back
-// ! handle error while using csv_reader
 internal_err_t read_schedule(train_t* trains){
 
     size_t idx = 0;
@@ -259,9 +257,12 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         {4, 2, 5, BRIN_DINEGRO, BRIN},
     };
 
+    *row = 255;
+    *col = 255;
+
     uint8_t len;
     // number of LEDs for each intermediate section (between 2 stations)
-    switch (train->status.position.checkpoint_pos){
+    switch (train->status.position.checkpoint){
     case DINEGRO_PRINCIPE:
     case PRINCIPE_DARSENA:
     case DARSENA_SANGIORGIO:
@@ -285,7 +286,7 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
     if(id == len)
         --id; // avoid out-of-range index
     checkpoint_t dest = train->line->path[train->line->stops_num - 1];
-    checkpoint_t pos = train->status.position.checkpoint_pos;
+    checkpoint_t pos = train->status.position.checkpoint;
 
     for(int j = 0; j < sizeof(LEDS) / sizeof(LEDS[0]); ++j){
         if(LEDS[j].dest == dest
@@ -301,17 +302,19 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
     ESP_LOGI("train_to_led", "train [%i] running on %s is at %s @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
         train->id,
         train->line->name,
-        checkpoint_str(train->status.position.checkpoint_pos), 
+        checkpoint_str(train->status.position.checkpoint), 
         100 * train->status.position.perc,
         *row,
         *col,
         id               
     );
+
+    assert(*row != 255 && *col != 255);
 }
 
 // for limiting current and because of matrix's structure (common anode), 
 // the matrix is drawn one line at a time
-static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
+static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
     static uint8_t row = 0;
     matrix_queue_elem_t data = 0;
     uint8_t cols;
@@ -356,14 +359,14 @@ void app_main(void){
     gptimer_handle_t timer;
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &timer));
     gptimer_alarm_config_t timer_alarm = {
-        .alarm_count = 2000, // 2ms period with 1MHz timer freq (emprical value)
+        .alarm_count = 2000, // 2ms period with 1MHz timer freq (empirical value)
         .reload_count = 0,
         .flags = {
             .auto_reload_on_alarm = true
         }
     };
     gptimer_event_callbacks_t cb = {
-        .on_alarm = draw
+        .on_alarm = ISR_draw
     };
     ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &timer_alarm));
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
@@ -439,9 +442,10 @@ void app_main(void){
         ESP_LOGI("main", "now is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
 
         // set to a preferred time for testing purposes
-        now_sched = (schedule_t){0, 16, 21};
-        today = SATURDAY;
+        // now_sched = (schedule_t){0, 16, 21};
+        // today = SATURDAY;
 
+        // chneg the current day at 4 when no trains are running
         if(now_sched.hour < 4){
             now_sched.hour += 24;
             today = today == SUNDAY ? SATURDAY : today - 1; // trick!!
@@ -463,7 +467,7 @@ void app_main(void){
 
                 uint8_t row, col;
 
-                // convert from position and percentage to rows and columns of the LED matrix
+                // convert from checkpoint and percentage to rows and columns of the LED matrix
                 train_to_led(&trains[i], &row, &col);
 
                 led_matrix |= ((uint64_t)1 << col) << (8 * row);
@@ -473,36 +477,43 @@ void app_main(void){
         xQueueOverwrite(matrix_queue, &led_matrix);
 
         if(!active_trains){
+
+            uint8_t id_last, id_first;
+
             schedule_t next_train_time = {0};
             // init at 15 in case I'm here but I have not passed the last train's time,
             // I'm going to wait for just 15s
             uint16_t sleep_time_s = 15;
 
+            // indices to search for the next train
             switch(today){
             case SUNDAY:
-                if(schedule_cmp(&now_sched, &last_train[0]) == 1)
-                    next_train_time = first_train[1];
+                id_last = 0;
+                id_first = 1;
                 break;
 
             case FRIDAY:
-                if(schedule_cmp(&now_sched, &last_train[1]) == 1)
-                    next_train_time = first_train[2];
+                id_last = 1;
+                id_first = 2;
                 break;
 
             case SATURDAY:
-                if(schedule_cmp(&now_sched, &last_train[2]) == 1)
-                    next_train_time = first_train[0];
+                id_last = 2;
+                id_first = 0;
                 break;
 
             default: 
-                if(schedule_cmp(&now_sched, &last_train[1]) == 1)
-                    next_train_time = first_train[1];
+                id_last = 1;
+                id_first = 1;
                 break;
             }
 
+            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1)
+                next_train_time = first_train[id_first];
+
             if(now_sched.hour > 23)
                 now_sched.hour -= 24; // Needed
-            sleep_time_s = get_delay(&now_sched, &next_train_time);
+            sleep_time_s = schedule_dist(&now_sched, &next_train_time);
 
             ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
 

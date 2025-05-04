@@ -41,7 +41,7 @@ typedef struct{
 } line_t;
 
 typedef struct{
-    checkpoint_t checkpoint_pos;
+    checkpoint_t checkpoint;
     float perc;
 } train_position_t;
 
@@ -61,7 +61,7 @@ typedef struct{
 
 const char* checkpoint_str(checkpoint_t c);
 bool is_station(checkpoint_t c);
-bool line_cmp(const line_t* l1, const line_t* l2);
+bool line_eq(const line_t* l1, const line_t* l2);
 void update_train_status(train_t* train, const schedule_t* time, day_t day);
 
 #endif
