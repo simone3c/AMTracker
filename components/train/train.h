@@ -6,6 +6,17 @@
 #define MAX_LINE_STOPS (10)
 
 typedef enum{
+    SUNDAY,
+    MONDAY,
+    TUESDAY,
+    WEDNESDAY,
+    THURSDAY,
+    FRIDAY,
+    SATURDAY,
+    MON_FRI,
+} day_t;
+
+typedef enum{
     BRIN = 0,
     DINEGRO,
     PRINCIPE,

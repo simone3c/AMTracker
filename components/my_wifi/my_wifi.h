@@ -15,5 +15,6 @@ typedef struct sockaddr_in sockaddr_in;
 typedef struct addr_in addr_in;
 
 void setup_wifi();
+void wifi_stop();
 
 #endif

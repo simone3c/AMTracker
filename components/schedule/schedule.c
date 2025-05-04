@@ -4,7 +4,7 @@
 #include <string.h>
 #include "schedule.h"
 
-// 1 if s1 > s2 - 0 if equal - -1 if <
+// 1 if s1 > s2 | 0 if equal | -1 if <
 int schedule_cmp(const schedule_t* s1, const schedule_t* s2){
 
     int ret = memcmp(s1, s2, sizeof(*s1));
@@ -12,32 +12,34 @@ int schedule_cmp(const schedule_t* s1, const schedule_t* s2){
     return ret > 0 ? 1 : ret < 0 ? -1 : 0;
 }
 // delay, in seconds, between s1 and s2.
-// negative if s2 comes bfore s1
-int32_t get_delay(const schedule_t* s1, const schedule_t* s2){
-    int32_t s1_sec = (s1->hour * 60 + s1->min) * 60 + s1->sec;
-    int32_t s2_sec = (s2->hour * 60 + s2->min) * 60 + s2->sec;
-
-    return s2_sec - s1_sec;
+// requires s1 and s2 in H24 format
+// get_daley(10:00:0:, 12:00:00) -> 720
+// get_daley(10:00:0:, 9:00:00) -> 82800
+uint32_t get_delay(const schedule_t* s1, const schedule_t* s2){
+    uint32_t s1_sec = (s1->hour * 60 + s1->min) * 60 + s1->sec;
+    uint32_t s2_sec = (s2->hour * 60 + s2->min) * 60 + s2->sec;
+    
+    return s2_sec > s1_sec ? s2_sec - s1_sec : 24 * 60 * 60 - (s1_sec - s2_sec);
 }
 
 // assumes that start is before end
-// assumes "time" between 00:00 and 23:59:59
 float get_percentage(const schedule_t* start, const schedule_t* end, schedule_t time){
+
+    assert(schedule_cmp(start, end) == -1);
+
     int32_t c1 = get_delay(start, end);
     int32_t c2 = 0;
 
-    assert(c1 > 0);
+    // // train starts (&& arrives) after midnight
+    // if(start->hour > 23)
+    //     time.hour += 24;
 
-    // train starts (&& arrives) after midnight
-    if(start->hour > 23)
-        time.hour += 24;
-
-    // train only arrives after midnight
-    else if(end->hour > 23){
-        // it's already midnight
-        if(schedule_cmp(start, &time) != -1)
-            time.hour += 24;
-    }
+    // // train only arrives after midnight
+    // else if(end->hour > 23){
+    //     // it's already midnight
+    //     if(schedule_cmp(start, &time) != -1)
+    //         time.hour += 24;
+    // }
 
     c2 = get_delay(start, &time);
 

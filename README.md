@@ -13,6 +13,7 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] timetable parser
 - [x] train localization
 - [x] train display
+- [ ] automatic selection of custom partition table/target/flash method(automatic SDK cofiguration)
 - [ ] error handling during startup (no wifi - ntp sync fail - ...)
 - [ ] error handling during exec (wifi disconnects - ntp sync fails - ...)
 - [ ] power management
@@ -47,7 +48,7 @@ and download the required Git submodules
 ```bash
     > cd AMTracker
     > git submodule init
-    > git submoduel update --remote
+    > git submodule update --remote
 ```
 
 Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros ```PSW``` and ```SSID``` in order to connect to your access point 

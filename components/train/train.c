@@ -55,10 +55,15 @@ void update_train_position(train_t* train, const schedule_t* time){
             return;
         }
     }
+
+    assert(false);
 }
 
 void update_train_status(train_t* train, const schedule_t* time, day_t day){
 
+    if(day != SUNDAY && day != SATURDAY)
+        day = MON_FRI;
+        
     train->status.is_active = 
         train->day == day && 
         is_between(&train->arrival[0], &train->departure[train->line->stops_num - 1], *time);

@@ -10,6 +10,7 @@
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_spiffs.h"
 
 #include "my_wifi.h"
@@ -281,6 +282,8 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
     }
 
     uint8_t id = train->status.position.perc * len;
+    if(id == len)
+        --id; // avoid out-of-range index
     checkpoint_t dest = train->line->path[train->line->stops_num - 1];
     checkpoint_t pos = train->status.position.checkpoint_pos;
 
@@ -291,20 +294,19 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         ){
             *row = LEDS[j].row;
             *col = LEDS[j].col;
-
-            ESP_LOGI("train_to_led", "train [%i] running on %s is at %s @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
-                train->id,
-                train->line->name,
-                checkpoint_str(train->status.position.checkpoint_pos), 
-                100 * train->status.position.perc,
-                *row,
-                *col,
-                id               
-            );
-
-            return;
+            break;
         }
     }   
+
+    ESP_LOGI("train_to_led", "train [%i] running on %s is at %s @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
+        train->id,
+        train->line->name,
+        checkpoint_str(train->status.position.checkpoint_pos), 
+        100 * train->status.position.perc,
+        *row,
+        *col,
+        id               
+    );
 }
 
 // for limiting current and because of matrix's structure (common anode), 
@@ -328,6 +330,7 @@ static bool draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata
 }
 
 void app_main(void){
+
     static train_t trains[TRAINS_NUM] = {0};
 
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
@@ -373,6 +376,8 @@ void app_main(void){
     if(get_ntp_clock())
         ESP_LOGE("main", "ERROR NTP");
 
+    wifi_stop();
+
     const esp_vfs_spiffs_conf_t spiffs_cfg = {
         .base_path = "/spiffs_root",
         .partition_label = NULL,
@@ -387,30 +392,74 @@ void app_main(void){
         // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
 
+    // idx 0 is SUNDAY
+    // idx 1 is MON_FRI
+    // idx 2 is SATURDAY
+    schedule_t first_train[3] = {
+        {100, 100, 100},
+        {100, 100, 100},
+        {100, 100, 100},
+    };
+    schedule_t last_train[3] = {0};
+
+    for(int i = 0; i < TRAINS_NUM; ++i){
+        int idx;
+        switch(trains[i].day){
+        case SUNDAY:
+            idx = 0;
+            break;
+
+        case MON_FRI:
+            idx = 1;
+            break;
+
+        case SATURDAY:
+            idx = 2;
+            break;
+        
+        default:
+            assert(false);
+        }
+
+        if(schedule_cmp(&trains[i].arrival[0], &first_train[idx]) == -1)
+            first_train[idx] = trains[i].arrival[0];
+
+        else if(schedule_cmp(&trains[i].arrival[0], &last_train[idx]) == 1)
+            last_train[idx] = trains[i].arrival[0];
+    }
+
     while(4){
         
         const time_t now_seconds = time(0);
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
+        day_t today = now.tm_wday;
+
+        ESP_LOGI("main", "now is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
+
         // set to a preferred time for testing purposes
-        //now_sched = (schedule_t){22, 26, 5};
+        now_sched = (schedule_t){0, 16, 21};
+        today = SATURDAY;
 
-        ESP_LOGI("main", "now is: %i - %i - %i", now_sched.hour, now_sched.min, now_sched.sec);
+        if(now_sched.hour < 4){
+            now_sched.hour += 24;
+            today = today == SUNDAY ? SATURDAY : today - 1; // trick!!
+        }
 
-        day_t day = MON_FRI;
-        if(now.tm_wday == 6)
-            day = SATURDAY;
-        else if(!now.tm_wday)
-            day = SUNDAY;
+        ESP_LOGI("main", "now in format H27 is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
 
         matrix_queue_elem_t led_matrix = 0;
 
+        uint8_t active_trains = 0;
+
         for(int i = 0; i < TRAINS_NUM; ++i){
 
-            update_train_status(&trains[i], &now_sched, day);
+            update_train_status(&trains[i], &now_sched, today);
             
             if(trains[i].status.is_active){
+
+                ++active_trains;
 
                 uint8_t row, col;
 
@@ -422,6 +471,47 @@ void app_main(void){
         }
 
         xQueueOverwrite(matrix_queue, &led_matrix);
+
+        if(!active_trains){
+            schedule_t next_train_time = {0};
+            // init at 15 in case I'm here but I have not passed the last train's time,
+            // I'm going to wait for just 15s
+            uint16_t sleep_time_s = 15;
+
+            switch(today){
+            case SUNDAY:
+                if(schedule_cmp(&now_sched, &last_train[0]) == 1)
+                    next_train_time = first_train[1];
+                break;
+
+            case FRIDAY:
+                if(schedule_cmp(&now_sched, &last_train[1]) == 1)
+                    next_train_time = first_train[2];
+                break;
+
+            case SATURDAY:
+                if(schedule_cmp(&now_sched, &last_train[2]) == 1)
+                    next_train_time = first_train[0];
+                break;
+
+            default: 
+                if(schedule_cmp(&now_sched, &last_train[1]) == 1)
+                    next_train_time = first_train[1];
+                break;
+            }
+
+            if(now_sched.hour > 23)
+                now_sched.hour -= 24; // Needed
+            sleep_time_s = get_delay(&now_sched, &next_train_time);
+
+            ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
+
+            if(sleep_time_s > 60)
+                esp_deep_sleep(5 * 1e6);//sleep_time_s * 1000000);
+            
+            if(sleep_time_s > 14)
+                vTaskDelay(MSEC(sleep_time_s * 1000));
+        }
 
         vTaskDelay(MSEC(2000));
     }
