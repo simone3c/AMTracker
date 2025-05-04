@@ -55,7 +55,7 @@ Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros `
 
 Change the NTP server inside ```components/ntp_client/ntp_client.c``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))
 
-!!! "Note"
+**Note**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment it to save time on future build operations
 
 Build the project
@@ -69,11 +69,11 @@ To run the code on your ESP32 you need to have necessary components listed in th
 
 ### Bills of material
 
-__TODO__
+**TODO**
 
 ### Wiring diagram
 
-__TODO__
+**TODO**
 
 ### Flash the code
 
@@ -82,10 +82,12 @@ When everything is connected, the last step is to flash the code and finally run
 ```bash
     > idf.py flash
 ```
-!!! "Note"
+**Note**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment the flag back to save time on future flash operations
 
-## PCB __TODO__
+## PCB 
+
+**TODO**
 
 ## License
 
@@ -93,4 +95,4 @@ This project is licensed under the [MIT License](LICENSE.md).
 
 ## Acknowledgments
 
-Similar project that inspired me are [Traintrackr](https://www.traintrackr.co.uk/) and [Designrules](https://www.designrules.co/)
+Similar project that inspired this work: [Traintrackr](https://www.traintrackr.co.uk/) and [Designrules](https://www.designrules.co/)
