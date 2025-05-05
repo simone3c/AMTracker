@@ -40,7 +40,7 @@ void update_train_position(train_t* train, const schedule_t* time){
         if(is_between(&train->arrival[j], &train->departure[j], time)){
             
             train->status.position.checkpoint = train->line->path[j];
-            train->status.position.perc = -1.; // doesnt care since it's in a station
+            train->status.position.perc = 0.0; // doesnt care since it's in a station
             return;
         }
     }

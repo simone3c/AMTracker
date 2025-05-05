@@ -1,12 +1,10 @@
 idf_component_register(
-    SRCS "main.c"
-    INCLUDE_DIRS "."
+    SRCS "my_err.c" "schedule.c" "train.c" "main.c"
+    INCLUDE_DIRS "include/"
     REQUIRES 
         spiffs 
         nvs_flash 
-        ntp_client 
-        schedule 
-        train 
+        ntp_client  
         esp_driver_gpio 
         esp_driver_gptimer 
         sn74hc595 

@@ -55,7 +55,7 @@ typedef struct{
     schedule_t arrival[MAX_LINE_STOPS];
     schedule_t departure[MAX_LINE_STOPS];
     day_t day;
-    line_t* line;
+    const line_t* line;
     train_status_t status;
 } train_t;
 

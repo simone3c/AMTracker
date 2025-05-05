@@ -1,7 +1,14 @@
-#include <stdio.h>
+/*
+
+    ! GTFS's support for >24 hour format (i.e. 01:00 == 25:00) and so does this project
+
+*/
+
 #include <time.h>
 #include <string.h>
 #include <inttypes.h>
+#include <errno.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/FreeRTOSConfig.h"
 #include "freertos/task.h"
@@ -20,15 +27,19 @@
 #include "sn74hc595.h"
 #include "led_matrix.h"
 #include "csv_reader.h"
+#include "my_err.h"
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
 #define STOPS_NUM 8
 #define TRAINS_NUM 801
 
+#define SLEEP_DEFAULT_S 15
+
 #define DATA 14
 #define CLK 13
 #define LATCH 12
+
 void sn74hc595_set_clk_pin(bool v){
     gpio_set_level(CLK, v);
 }
@@ -46,10 +57,8 @@ typedef struct{
     checkpoint_t pos;
     checkpoint_t dest;
 } led_t;
-
 // encode the matrix content in 8 bytes
 typedef uint64_t matrix_queue_elem_t;
-
 QueueHandle_t matrix_queue;
 
 const line_t BRIN_BRIGNOLE = {
@@ -73,7 +82,6 @@ const line_t BRIN_BRIGNOLE = {
     },
     .stops_num = STOPS_NUM
 };
-
 const line_t BRIGNOLE_BRIN = {
     .name = "brignole_brin",
     .path = {
@@ -96,25 +104,16 @@ const line_t BRIGNOLE_BRIN = {
     .stops_num = STOPS_NUM
 };
 
-typedef enum{
-    OK,
-    PARSER_GETLINE,
-    TOO_MANY_TRAINS,
-    CSV_LINE_FORMAT,
-    CSV_ORDER,
-
-
-} internal_err_t;
-
 // assumes that lines relative to the same train come back-to-back
-internal_err_t read_schedule(train_t* trains){
+my_err_t read_schedule(train_t* trains){
 
     size_t idx = 0;
     uint8_t h, m, s;
     csv_line_t line;
 
     csv_reader_t csv;
-    int err = csv_reader_init(&csv, "/spiffs_root/stop_times_fixed.csv", ',');
+    if(csv_reader_init(&csv, "/spiffs_root/stop_times_fixed.csv", ',') < 0)
+        return CSV_CANNOT_OPEN_FILE;
 
     while(idx < TRAINS_NUM){
 
@@ -131,23 +130,26 @@ internal_err_t read_schedule(train_t* trains){
             char* useless;
 
             // train ID
-            csv_reader_getfield(&csv, &line, "trip_id", &token);
+            if(csv_reader_getfield(&csv, &line, "trip_id", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
+
             train_id = strtol(token, &useless, 10);
-            // CSV is not correctly sorted
             if(i && train_id != train_id_check)
-                return CSV_ORDER;
+                return CSV_WRONG_ORDER;
             
             train_id_check = train_id;
             
             // stop index
             free(token);
-            csv_reader_getfield(&csv, &line, "stop_sequence", &token);
+            if(csv_reader_getfield(&csv, &line, "stop_sequence", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
             stop_idx = strtol(token, &useless, 10) - 1;
 
             // arrival
             free(token);
             char* aux = NULL;
-            csv_reader_getfield(&csv, &line, "arrival_time", &token);
+            if(csv_reader_getfield(&csv, &line, "arrival_time", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
             h = atoi(strtok_r(token, ":", &aux));
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
@@ -156,7 +158,8 @@ internal_err_t read_schedule(train_t* trains){
             // departure
             free(token);
             aux = NULL;
-            csv_reader_getfield(&csv, &line, "departure_time", &token);
+            if(csv_reader_getfield(&csv, &line, "departure_time", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
             h = atoi(strtok_r(token, ":", &aux));
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
@@ -164,13 +167,15 @@ internal_err_t read_schedule(train_t* trains){
 
             // line
             free(token);
-            csv_reader_getfield(&csv, &line, "stop_id", &token);
+            if(csv_reader_getfield(&csv, &line, "stop_id", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
             if(!i)
                 trains[idx].line = !strcmp(token, "MM03") ? &BRIGNOLE_BRIN : &BRIN_BRIGNOLE;
             
             // day
             free(token);
-            csv_reader_getfield(&csv, &line, "day", &token);
+            if(csv_reader_getfield(&csv, &line, "day", &token) < 0)
+                return CSV_UNKNOWN_FIELD;
             char* day_str = token;
             day_t day = SUNDAY;
             if(!strcmp(day_str, "Mon_Fri"))
@@ -190,11 +195,11 @@ internal_err_t read_schedule(train_t* trains){
 
     csv_reader_deinit(&csv);
 
-    return OK;
+    return NO_ERR;
 }
 
-void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
-
+my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t* id_ret){
+    // range [0, 7] for leds coordinates
     static const led_t LEDS[] = {
         // stations
         {0, 0, 0, BRIN, BRIGNOLE},
@@ -257,9 +262,6 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
         {4, 2, 5, BRIN_DINEGRO, BRIN},
     };
 
-    *row = 255;
-    *col = 255;
-
     uint8_t len;
     // number of LEDs for each intermediate section (between 2 stations)
     switch (train->status.position.checkpoint){
@@ -283,33 +285,25 @@ void train_to_led(const train_t* train, uint8_t* row, uint8_t* col){
     }
 
     uint8_t id = train->status.position.perc * len;
-    if(id == len)
+    if(len > 0 && id == len)
         --id; // avoid out-of-range index
     checkpoint_t dest = train->line->path[train->line->stops_num - 1];
     checkpoint_t pos = train->status.position.checkpoint;
 
-    for(int j = 0; j < sizeof(LEDS) / sizeof(LEDS[0]); ++j){
-        if(LEDS[j].dest == dest
-            && LEDS[j].pos == pos
-            && LEDS[j].relative_id == id
+    for(int i = 0; i < sizeof(LEDS) / sizeof(LEDS[0]); ++i){
+        if(LEDS[i].dest == dest
+            && LEDS[i].pos == pos
+            && LEDS[i].relative_id == id
         ){
-            *row = LEDS[j].row;
-            *col = LEDS[j].col;
-            break;
+            *row = LEDS[i].row;
+            *col = LEDS[i].col;
+            *id_ret = id;
+
+            return NO_ERR;
         }
     }   
 
-    ESP_LOGI("train_to_led", "train [%i] running on %s is at %s @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
-        train->id,
-        train->line->name,
-        checkpoint_str(train->status.position.checkpoint), 
-        100 * train->status.position.perc,
-        *row,
-        *col,
-        id               
-    );
-
-    assert(*row != 255 && *col != 255);
+    return CANNOT_CONVERT_TO_LED;
 }
 
 // for limiting current and because of matrix's structure (common anode), 
@@ -332,12 +326,7 @@ static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *e
     return 1;
 }
 
-void app_main(void){
-
-    static train_t trains[TRAINS_NUM] = {0};
-
-    matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
-    
+void gpio_init(){
     // GPIO config
     gpio_config_t pin_cfg = {
         .pin_bit_mask = (1 << DATA) | (1 << CLK) | (1 << LATCH),
@@ -347,7 +336,9 @@ void app_main(void){
         .intr_type = GPIO_INTR_DISABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&pin_cfg));
-     
+}
+
+void timer_init(){
     // ISR led matrix timer config 
     gptimer_config_t timer_cfg = {
         .clk_src = GPTIMER_CLK_SRC_DEFAULT,
@@ -372,7 +363,40 @@ void app_main(void){
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
     ESP_ERROR_CHECK(gptimer_enable(timer));
     gptimer_start(timer);
+}
 
+// ! correctly initialise nvs(?) otherwise it doesnt mount 
+// ! (now it works only after wifi an sntp set up something (nvs?))
+void spiffs_init(){
+    const esp_vfs_spiffs_conf_t spiffs_cfg = {
+        .base_path = "/spiffs_root",
+        .partition_label = NULL,
+        .max_files = 1,
+        .format_if_mount_failed = false
+    };
+    ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
+}
+
+void app_main(void){
+
+    static train_t trains[TRAINS_NUM] = {0};
+
+    matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
+
+    // [0] is SUNDAY
+    // [1] is MON_FRI
+    // [2] is SATURDAY
+    // initialisation is useful when filling the array
+    schedule_t first_train[3] = {
+        {100, 100, 100},
+        {100, 100, 100},
+        {100, 100, 100},
+    };
+    schedule_t last_train[3] = {0};
+    
+    gpio_init();
+    timer_init();    
+    
     setup_wifi();
 
     // TODO turn on error LED and exit
@@ -381,30 +405,15 @@ void app_main(void){
 
     wifi_stop();
 
-    const esp_vfs_spiffs_conf_t spiffs_cfg = {
-        .base_path = "/spiffs_root",
-        .partition_label = NULL,
-        .max_files = 1,
-        .format_if_mount_failed = false
-    };
-    ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
-
-    
-    internal_err_t err = read_schedule(trains);
-    if(err != OK)
+    spiffs_init();
+    my_err_t err = read_schedule(trains);
+    if(err != NO_ERR){
         // TODO turn on error LED and exit
-        ESP_LOGE("main", "ERROR READ SCHEDULE: %i", err);
+        ESP_LOGE("main", "ERROR READ SCHEDULE: %s", strerr(err));
+        
+    }
 
-    // idx 0 is SUNDAY
-    // idx 1 is MON_FRI
-    // idx 2 is SATURDAY
-    schedule_t first_train[3] = {
-        {100, 100, 100},
-        {100, 100, 100},
-        {100, 100, 100},
-    };
-    schedule_t last_train[3] = {0};
-
+    // find first and last train of each day
     for(int i = 0; i < TRAINS_NUM; ++i){
         int idx;
         switch(trains[i].day){
@@ -439,10 +448,8 @@ void app_main(void){
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
 
-        ESP_LOGI("main", "now is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
-
         // set to a preferred time for testing purposes
-        // now_sched = (schedule_t){0, 16, 21};
+        // now_sched = (schedule_t){22, 29, 16};
         // today = SATURDAY;
 
         // chneg the current day at 4 when no trains are running
@@ -451,7 +458,7 @@ void app_main(void){
             today = today == SUNDAY ? SATURDAY : today - 1; // trick!!
         }
 
-        ESP_LOGI("main", "now in format H27 is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
+        ESP_LOGI("main", "now is: %i - %i - %i - %i", today, now_sched.hour, now_sched.min, now_sched.sec);
 
         matrix_queue_elem_t led_matrix = 0;
 
@@ -465,12 +472,23 @@ void app_main(void){
 
                 ++active_trains;
 
-                uint8_t row, col;
-
+                uint8_t row, col, id;
+                my_err_t err;
                 // convert from checkpoint and percentage to rows and columns of the LED matrix
-                train_to_led(&trains[i], &row, &col);
+                if((err = train_to_led(&trains[i], &row, &col, &id)) == NO_ERR)
+                    led_matrix |= ((uint64_t)1 << col) << (8 * row);
+                else
+                    ESP_LOGE("main", "%s", strerr(err));
 
-                led_matrix |= ((uint64_t)1 << col) << (8 * row);
+                ESP_LOGI("main", "train [%i] line [%s] now in [%s] @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
+                    trains[i].id,
+                    trains[i].line->name,
+                    checkpoint_str(trains[i].status.position.checkpoint), 
+                    100 * trains[i].status.position.perc,
+                    row,
+                    col,
+                    id               
+                );
             }
         }
 
@@ -481,9 +499,9 @@ void app_main(void){
             uint8_t id_last, id_first;
 
             schedule_t next_train_time = {0};
-            // init at 15 in case I'm here but I have not passed the last train's time,
-            // I'm going to wait for just 15s
-            uint16_t sleep_time_s = 15;
+            // init required in case I'm here but there are more trains today:
+            // I'm not going to deep sleep but just delay this task for SLEEP_DEFAULT_S
+            uint16_t sleep_time_s = SLEEP_DEFAULT_S;
 
             // indices to search for the next train
             switch(today){
@@ -508,19 +526,20 @@ void app_main(void){
                 break;
             }
 
-            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1)
+            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1){
                 next_train_time = first_train[id_first];
 
-            if(now_sched.hour > 23)
-                now_sched.hour -= 24; // Needed
-            sleep_time_s = schedule_dist(&now_sched, &next_train_time);
+                if(now_sched.hour > 23)
+                    now_sched.hour -= 24; // Needed
+                sleep_time_s = schedule_diff(&now_sched, &next_train_time);
+            }                
 
             ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
 
             if(sleep_time_s > 60)
-                esp_deep_sleep(5 * 1e6);//sleep_time_s * 1000000);
+                esp_deep_sleep(sleep_time_s * 1000000);
             
-            if(sleep_time_s > 14)
+            if(sleep_time_s >= SLEEP_DEFAULT_S)
                 vTaskDelay(MSEC(sleep_time_s * 1000));
         }
 
