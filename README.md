@@ -15,8 +15,8 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] train display
 - [ ] automatic selection of custom partition table/target/flash method(automatic SDK cofiguration)
 - [ ] error handling during startup (no wifi - ntp sync fail - ...)
-- [ ] error handling during exec (wifi disconnects - ntp sync fails - ...)
-- [ ] power management
+- [x] error handling during exec (wifi disconnects - ntp sync fails - ...)
+- [x] power management
 - [ ] UI (power button - errors - train scan rate - wifi connection? - ...)
 - [ ] OTA for timetable update
 - [ ] PCB
@@ -28,15 +28,7 @@ The project is developed on ESP-IDF v5.4.1 and it's tested on an ESP32-WROVER-E.
 
 ### Prerequisites
 
-- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/index.html) >= v5.4.1 - Framework for developing, building and flashing code on ESP32.
-
-### Timetable
-
-The timetable are stored inside ```data/stop_times.txt``` and can be freely downloaded from the local transport agency's website. To transform them in the correct format used in this project you need to run the python script ```data/timetable.py```:
-```bash
-    > python3 timetable.py stop_times.txt
-```
-This operation will produce the file ```stop_times_fixed.csv``` which should be moved inside ```spiffs_root```
+- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/index.html) v5.4.1 - Framework for developing, building and flashing code on ESP32.
 
 ### Installing and building
 
@@ -58,10 +50,22 @@ Change the NTP server inside ```components/ntp_client/ntp_client.c``` to the opt
 **Note**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment it to save time on future build operations
 
-Build the project
+Build the project:
+
 ```bash
     > idf.py build
 ```
+
+### Timetable
+
+The timetable is provided inside ```data/stop_times.txt``` or can be freely downloaded from the local transport agency's website. To convert it into the correct format used in this project you need to run the python script ```data/timetable.py```. This operation will produce the file ```stop_times_fixed.csv``` which should be moved inside ```spiffs_root```:
+
+```bash
+    > cd data/
+    > python3 timetable.py stop_times.txt
+    > mv stop_times_fixed.csv ../spiffs_root/
+```
+
 
 ## Deployment
 
