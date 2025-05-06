@@ -10,6 +10,7 @@ typedef enum{
     CSV_CANNOT_OPEN_FILE,
     CSV_UNKNOWN_FIELD,
     CANNOT_CONVERT_TO_LED,
+    SNTP_SYNC_FAIL,
 
     UNKNOW_ERR
 } my_err_t;

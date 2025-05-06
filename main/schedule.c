@@ -15,8 +15,13 @@ uint32_t schedule_diff(const schedule_t* s1, const schedule_t* s2){
 
     uint32_t s1_sec = (s1->hour * 60 + s1->min) * 60 + s1->sec;
     uint32_t s2_sec = (s2->hour * 60 + s2->min) * 60 + s2->sec;
+
+    // if s1 == 10:00 and s2 == 9:00 I want the result to be 23 hours, so it's
+    // easier to trasform s2 into 33:00 by adding one day (24*60*60 seconds)
+    while(s2_sec < s1_sec)
+        s2_sec += 24 * 60 * 60;
     
-    return s2_sec > s1_sec ? s2_sec - s1_sec : 24 * 60 * 60 - (s1_sec - s2_sec);
+    return s2_sec - s1_sec;
 }
 
 float get_percentage(const schedule_t* start, const schedule_t* end, const schedule_t* time){

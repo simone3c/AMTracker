@@ -69,5 +69,4 @@ void update_train_status(train_t* train, const schedule_t* time, day_t day){
 
     if(train->status.is_active)
         update_train_position(train, time);
-
 }

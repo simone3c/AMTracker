@@ -19,9 +19,12 @@
 #include "esp_log.h"
 #include "esp_sleep.h"
 #include "esp_spiffs.h"
+#include "esp_netif.h"
+#include "esp_netif_sntp.h"
+#include "esp_sntp.h"
+#include "lwip/ip_addr.h"
 
 #include "my_wifi.h"
-#include "ntp_client.h"
 #include "schedule.h"
 #include "train.h"
 #include "sn74hc595.h"
@@ -105,14 +108,14 @@ const line_t BRIGNOLE_BRIN = {
 };
 
 // assumes that lines relative to the same train come back-to-back
-my_err_t read_schedule(train_t* trains){
+my_err_t read_schedule(train_t* trains, const char* file){
 
     size_t idx = 0;
     uint8_t h, m, s;
     csv_line_t line;
 
     csv_reader_t csv;
-    if(csv_reader_init(&csv, "/spiffs_root/stop_times_fixed.csv", ',') < 0)
+    if(csv_reader_init(&csv, file, ',') < 0)
         return CSV_CANNOT_OPEN_FILE;
 
     while(idx < TRAINS_NUM){
@@ -134,8 +137,12 @@ my_err_t read_schedule(train_t* trains){
                 return CSV_UNKNOWN_FIELD;
 
             train_id = strtol(token, &useless, 10);
-            if(i && train_id != train_id_check)
+            if(i && train_id != train_id_check){
+                free(token);
+                csv_reader_line_free(&line);
+                csv_reader_deinit(&csv);
                 return CSV_WRONG_ORDER;
+            }
             
             train_id_check = train_id;
             
@@ -326,6 +333,26 @@ static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *e
     return 1;
 }
 
+my_err_t get_ntp_clock(){
+
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("0.it.pool.ntp.org");
+
+    ESP_ERROR_CHECK(esp_netif_sntp_init(&config));
+
+    if(esp_netif_sntp_sync_wait(1000) != ESP_OK)
+        return SNTP_SYNC_FAIL;
+
+    esp_netif_sntp_deinit();
+
+    return NO_ERR;
+}
+
 void gpio_init(){
     // GPIO config
     gpio_config_t pin_cfg = {
@@ -366,7 +393,7 @@ void timer_init(){
 }
 
 // ! correctly initialise nvs(?) otherwise it doesnt mount 
-// ! (now it works only after wifi an sntp set up something (nvs?))
+// ! (now it works only after wifi and sntp set up something (nvs?))
 void spiffs_init(){
     const esp_vfs_spiffs_conf_t spiffs_cfg = {
         .base_path = "/spiffs_root",
@@ -396,7 +423,7 @@ void app_main(void){
     
     gpio_init();
     timer_init();    
-    
+
     setup_wifi();
 
     // TODO turn on error LED and exit
@@ -406,10 +433,10 @@ void app_main(void){
     wifi_stop();
 
     spiffs_init();
-    my_err_t err = read_schedule(trains);
+    my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
     if(err != NO_ERR){
         // TODO turn on error LED and exit
-        ESP_LOGE("main", "ERROR READ SCHEDULE: %s", strerr(err));
+        ESP_LOGE("main", "ERROR READ SCHEDULE: %s - errno: %s", strerr(err), strerror(errno));
         
     }
 
@@ -449,8 +476,8 @@ void app_main(void){
         day_t today = now.tm_wday;
 
         // set to a preferred time for testing purposes
-        // now_sched = (schedule_t){22, 29, 16};
-        // today = SATURDAY;
+        // now_sched = (schedule_t){23, 0, 16};
+        // today = SUNDAY;
 
         // chneg the current day at 4 when no trains are running
         if(now_sched.hour < 4){
@@ -498,7 +525,6 @@ void app_main(void){
 
             uint8_t id_last, id_first;
 
-            schedule_t next_train_time = {0};
             // init required in case I'm here but there are more trains today:
             // I'm not going to deep sleep but just delay this task for SLEEP_DEFAULT_S
             uint16_t sleep_time_s = SLEEP_DEFAULT_S;
@@ -526,13 +552,8 @@ void app_main(void){
                 break;
             }
 
-            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1){
-                next_train_time = first_train[id_first];
-
-                if(now_sched.hour > 23)
-                    now_sched.hour -= 24; // Needed
-                sleep_time_s = schedule_diff(&now_sched, &next_train_time);
-            }                
+            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1)
+                sleep_time_s = schedule_diff(&now_sched, &first_train[id_first]); 
 
             ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
 

@@ -3,13 +3,13 @@ idf_component_register(
     INCLUDE_DIRS "include/"
     REQUIRES 
         spiffs 
-        nvs_flash 
-        ntp_client  
+        nvs_flash   
         esp_driver_gpio 
         esp_driver_gptimer 
         sn74hc595 
         led_matrix 
         csv_reader
+        my_wifi
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory
