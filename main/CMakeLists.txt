@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "my_err.c" "schedule.c" "train.c" "main.c"
+    SRCS "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
     INCLUDE_DIRS "include/"
     REQUIRES 
         spiffs 
@@ -9,7 +9,8 @@ idf_component_register(
         sn74hc595 
         led_matrix 
         csv_reader
-        my_wifi
+        esp_http_server
+        esp_wifi
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory

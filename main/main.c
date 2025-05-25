@@ -23,6 +23,8 @@
 #include "esp_netif_sntp.h"
 #include "esp_sntp.h"
 #include "lwip/ip_addr.h"
+#include "nvs_flash.h"
+#include "nvs.h"
 
 #include "my_wifi.h"
 #include "schedule.h"
@@ -31,6 +33,15 @@
 #include "led_matrix.h"
 #include "csv_reader.h"
 #include "my_err.h"
+
+#include "wifi_credentials.h"
+
+static gptimer_handle_t timer;
+
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "lwip/inet.h"
+#include "esp_http_server.h"
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
@@ -374,7 +385,6 @@ void timer_init(){
         .intr_priority = 0,
         .flags = {0},
     };
-    gptimer_handle_t timer;
     ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &timer));
     gptimer_alarm_config_t timer_alarm = {
         .alarm_count = 2000, // 2ms period with 1MHz timer freq (empirical value)
@@ -389,8 +399,8 @@ void timer_init(){
     ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &timer_alarm));
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
     ESP_ERROR_CHECK(gptimer_enable(timer));
-    gptimer_start(timer);
 }
+
 
 // ! correctly initialise nvs(?) otherwise it doesnt mount 
 // ! (now it works only after wifi and sntp set up something (nvs?))
@@ -404,7 +414,120 @@ void spiffs_init(){
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
 }
 
+
+const char* index_html = "<!DOCTYPE html>\
+<html>\
+<head>\
+    <title>WiFi Configuration</title>\
+</head>\
+<body>\
+    <h2>WiFi Configuration Form</h2>\
+    <form method=\"GET\" action=\"/\">\
+        <label for=\"ssid\">SSID:</label><br>\
+        <input type=\"text\" id=\"ssid\" name=\"ssid\" required><br><br>\
+        <label for=\"password\">Password:</label><br>\
+        <input type=\"password\" id=\"password\" name=\"password\" required><br><br>\
+        <input type=\"submit\" value=\"Connect\">\
+    </form>\
+</body>\
+</html>\
+";
+
+const char* exit_html = "<!DOCTYPE html>\
+<html>\
+  <head>\
+    <style>\
+      body {\
+        background-color: #ffffff;\
+      }\
+    </style>\
+    <title>Bye Bye</title>\
+  </head>\
+  <body>\
+    <h1>Bye Bye</h1>\
+  </body>\
+</html>";
+
+static EventGroupHandle_t server_events;
+
+// HTTP GET Handler
+static esp_err_t root_get_handler(httpd_req_t *req){
+    char content[100];
+    memset(content, 0, 100);
+    httpd_req_get_url_query_str(req, content, 100);
+    ESP_LOGI("root_get_handler", "URL: '%s'", content);
+
+    char tmp[32] = {0};
+    char query[32] = {0};
+    
+    httpd_req_get_url_query_str(req, query, 32);
+    httpd_query_key_value(query, "ssid", &tmp[0], 32);
+
+    if(!strcmp(tmp, "v")){
+
+        ESP_LOGI("root_get_handler", "Closing HTPP server");
+
+
+        const uint32_t root_len = strlen(exit_html);
+
+        ESP_LOGI("root_get_handler", "Serve root");
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_send(req, exit_html, root_len);
+
+        // BIT1 is "credentials are ready"
+        xEventGroupSetBits(server_events, BIT1);
+
+        return ESP_OK;
+    }
+
+    const uint32_t root_len = strlen(index_html);
+
+    ESP_LOGI("root_get_handler", "Serve root");
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, index_html, root_len);
+
+    return ESP_OK;
+}
+
+static const httpd_uri_t root = {
+    .uri = "/",
+    .method = HTTP_GET,
+    .handler = root_get_handler
+};
+
+// HTTP Error (404) Handler - Redirects all requests to the root page
+esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
+    // Set status
+    httpd_resp_set_status(req, "302 Temporary Redirect");
+    // Redirect to the "/" root directory
+    httpd_resp_set_hdr(req, "Location", "/");
+    // iOS requires content in the response to detect a captive portal, simply redirecting is not sufficient.
+    httpd_resp_send(req, "Redirect to the captive portal", HTTPD_RESP_USE_STRLEN);
+
+    ESP_LOGI("ss", "Redirecting to root");
+    return ESP_OK;
+}
+
+static httpd_handle_t start_webserver(void){
+    httpd_handle_t server = NULL;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_open_sockets = 1;
+    //config.lru_purge_enable = true;
+
+    // Start the httpd server
+    ESP_LOGI("s", "Starting server on port: '%d'", config.server_port);
+    if (httpd_start(&server, &config) == ESP_OK) {
+        // Set URI handlers
+        ESP_LOGI("ss", "Registering URI handlers");
+        httpd_register_uri_handler(server, &root);
+        httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+    }
+    return server;
+}
+
 void app_main(void){
+
+    server_events = xEventGroupCreate();
 
     static train_t trains[TRAINS_NUM] = {0};
 
@@ -422,15 +545,85 @@ void app_main(void){
     schedule_t last_train[3] = {0};
     
     gpio_init();
-    timer_init();    
+    timer_init();
 
-    setup_wifi();
+    // ----------------Initialize NVS
+    // esp_err_t eerr = nvs_flash_init();
+    // if (eerr == ESP_ERR_NVS_NO_FREE_PAGES || eerr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    //     // NVS partition was truncated and needs to be erased
+    //     // Retry nvs_flash_init
+    //     ESP_ERROR_CHECK(nvs_flash_erase());
+    //     eerr = nvs_flash_init();
+    // }
+    // ESP_ERROR_CHECK(eerr);
+
+    // uint8_t c = 0, m = 34;
+    // nvs_handle_t nvs;
+    // ESP_ERROR_CHECK(nvs_open("nvs", NVS_READWRITE, &nvs));
+    // eerr = nvs_get_u8(nvs, "ssid", &m);
+    // if(eerr == ESP_OK){
+    //     ESP_LOGI("NVS", "ssid is '%"PRIu8"'", m);
+    //     nvs_set_u8(nvs, "ssid", m+1);}
+    // else 
+    //     ESP_LOGE("error", "%s", esp_err_to_name(eerr));
+
+    // return;
+
+    wifi_config_t ap_cfg = {
+        .ap = {
+            .ssid = "esp32",
+            .ssid_len = strlen("esp32"),
+            //.channel = EXAMPLE_ESP_WIFI_CHANNEL,
+            .password = "",
+            .max_connection = 1,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pmf_cfg = {
+                .required = false,
+            },
+        },
+    };
+
+    wifi_config_t sta_cfg = {
+        .sta = {
+            .ssid = "\0",
+            .password = "\0",
+	     .threshold.authmode = WIFI_AUTH_OPEN,
+            .pmf_cfg = {
+                .capable = true,
+                .required = false
+            },
+        },
+    };
+
+    wifi_apsta_setup(&sta_cfg, &ap_cfg);
+    wifi_start(server_events);
+
+    httpd_handle_t server = start_webserver();
+    
+    while(4){
+        xEventGroupWaitBits(server_events, BIT1, 0, 0, portMAX_DELAY); // should clear bit to block until new credentials are ready
+
+        // take credetnials from NVS...
+        // ...put them into sta_cfg
+
+        memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
+        memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
+
+        if(wifi_apsta_connect_to(&sta_cfg) == 1)
+            break;
+
+        ESP_LOGI("main", "wrong credentials");
+    }
+
+    httpd_stop(server);
+
+    vTaskDelay(MSEC(100));
 
     // TODO turn on error LED and exit
     if(get_ntp_clock())
         ESP_LOGE("main", "ERROR NTP");
 
-    wifi_stop();
+    wifi_stop_and_deinit();
 
     spiffs_init();
     my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
@@ -466,6 +659,9 @@ void app_main(void){
         else if(schedule_cmp(&trains[i].arrival[0], &last_train[idx]) == 1)
             last_train[idx] = trains[i].arrival[0];
     }
+
+    // start drawing LED matrix
+    ESP_ERROR_CHECK(gptimer_start(timer));
 
     while(4){
         
