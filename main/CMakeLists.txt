@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
+    SRCS "web_interface.c" "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
     INCLUDE_DIRS "include/"
     REQUIRES 
         spiffs 
@@ -11,6 +11,10 @@ idf_component_register(
         csv_reader
         esp_http_server
         esp_wifi
+    EMBED_FILES 
+        html/index.html
+        html/new_sta.html
+        html/bye.html
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory

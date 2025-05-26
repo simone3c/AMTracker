@@ -33,15 +33,11 @@
 #include "led_matrix.h"
 #include "csv_reader.h"
 #include "my_err.h"
+#include "web_interface.h"
 
 #include "wifi_credentials.h"
 
-static gptimer_handle_t timer;
-
-#include "esp_wifi.h"
-#include "esp_netif.h"
-#include "lwip/inet.h"
-#include "esp_http_server.h"
+static gptimer_handle_t timer = NULL;
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 
@@ -414,120 +410,7 @@ void spiffs_init(){
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
 }
 
-
-const char* index_html = "<!DOCTYPE html>\
-<html>\
-<head>\
-    <title>WiFi Configuration</title>\
-</head>\
-<body>\
-    <h2>WiFi Configuration Form</h2>\
-    <form method=\"GET\" action=\"/\">\
-        <label for=\"ssid\">SSID:</label><br>\
-        <input type=\"text\" id=\"ssid\" name=\"ssid\" required><br><br>\
-        <label for=\"password\">Password:</label><br>\
-        <input type=\"password\" id=\"password\" name=\"password\" required><br><br>\
-        <input type=\"submit\" value=\"Connect\">\
-    </form>\
-</body>\
-</html>\
-";
-
-const char* exit_html = "<!DOCTYPE html>\
-<html>\
-  <head>\
-    <style>\
-      body {\
-        background-color: #ffffff;\
-      }\
-    </style>\
-    <title>Bye Bye</title>\
-  </head>\
-  <body>\
-    <h1>Bye Bye</h1>\
-  </body>\
-</html>";
-
-static EventGroupHandle_t server_events;
-
-// HTTP GET Handler
-static esp_err_t root_get_handler(httpd_req_t *req){
-    char content[100];
-    memset(content, 0, 100);
-    httpd_req_get_url_query_str(req, content, 100);
-    ESP_LOGI("root_get_handler", "URL: '%s'", content);
-
-    char tmp[32] = {0};
-    char query[32] = {0};
-    
-    httpd_req_get_url_query_str(req, query, 32);
-    httpd_query_key_value(query, "ssid", &tmp[0], 32);
-
-    if(!strcmp(tmp, "v")){
-
-        ESP_LOGI("root_get_handler", "Closing HTPP server");
-
-
-        const uint32_t root_len = strlen(exit_html);
-
-        ESP_LOGI("root_get_handler", "Serve root");
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_send(req, exit_html, root_len);
-
-        // BIT1 is "credentials are ready"
-        xEventGroupSetBits(server_events, BIT1);
-
-        return ESP_OK;
-    }
-
-    const uint32_t root_len = strlen(index_html);
-
-    ESP_LOGI("root_get_handler", "Serve root");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, index_html, root_len);
-
-    return ESP_OK;
-}
-
-static const httpd_uri_t root = {
-    .uri = "/",
-    .method = HTTP_GET,
-    .handler = root_get_handler
-};
-
-// HTTP Error (404) Handler - Redirects all requests to the root page
-esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
-    // Set status
-    httpd_resp_set_status(req, "302 Temporary Redirect");
-    // Redirect to the "/" root directory
-    httpd_resp_set_hdr(req, "Location", "/");
-    // iOS requires content in the response to detect a captive portal, simply redirecting is not sufficient.
-    httpd_resp_send(req, "Redirect to the captive portal", HTTPD_RESP_USE_STRLEN);
-
-    ESP_LOGI("ss", "Redirecting to root");
-    return ESP_OK;
-}
-
-static httpd_handle_t start_webserver(void){
-    httpd_handle_t server = NULL;
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_open_sockets = 1;
-    //config.lru_purge_enable = true;
-
-    // Start the httpd server
-    ESP_LOGI("s", "Starting server on port: '%d'", config.server_port);
-    if (httpd_start(&server, &config) == ESP_OK) {
-        // Set URI handlers
-        ESP_LOGI("ss", "Registering URI handlers");
-        httpd_register_uri_handler(server, &root);
-        httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
-    }
-    return server;
-}
-
 void app_main(void){
-
-    server_events = xEventGroupCreate();
 
     static train_t trains[TRAINS_NUM] = {0};
 
@@ -596,28 +479,29 @@ void app_main(void){
     };
 
     wifi_apsta_setup(&sta_cfg, &ap_cfg);
-    wifi_start(server_events);
+    wifi_start();
 
-    httpd_handle_t server = start_webserver();
+    ESP_ERROR_CHECK(start_web_interface());
     
     while(4){
-        xEventGroupWaitBits(server_events, BIT1, 0, 0, portMAX_DELAY); // should clear bit to block until new credentials are ready
+        if(wait_for_credentials() == 1){
+            ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
+            assert(false);
+        }
 
-        // take credetnials from NVS...
+        // take credentials from NVS...
         // ...put them into sta_cfg
 
         memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
         memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
 
-        if(wifi_apsta_connect_to(&sta_cfg) == 1)
+        if(wifi_apsta_connect_to(&sta_cfg) == 1) // connection established
             break;
 
         ESP_LOGI("main", "wrong credentials");
     }
 
-    httpd_stop(server);
-
-    vTaskDelay(MSEC(100));
+    stop_web_interface();
 
     // TODO turn on error LED and exit
     if(get_ntp_clock())

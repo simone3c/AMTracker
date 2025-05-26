@@ -28,5 +28,6 @@ int wifi_start();
 void wifi_stop();
 void wifi_stop_and_deinit();
 int wifi_apsta_connect_to(wifi_config_t* sta_cfg);
+int wifi_scan(wifi_ap_record_t* ap_info, uint16_t* ap_count);
 
 #endif
