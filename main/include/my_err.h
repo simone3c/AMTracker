@@ -2,7 +2,7 @@
 #define MY_ERR
 
 typedef enum{
-    NO_ERR = 0,
+    OK = 0,
     PARSER_GETLINE,
     TOO_MANY_TRAINS,
     CSV_LINE_FORMAT,
@@ -11,6 +11,7 @@ typedef enum{
     CSV_UNKNOWN_FIELD,
     CANNOT_CONVERT_TO_LED,
     SNTP_SYNC_FAIL,
+    WIFI_STA_CANNOT_CONNECT,
 
     UNKNOW_ERR
 } my_err_t;

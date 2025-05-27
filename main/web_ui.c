@@ -1,4 +1,4 @@
-#include "web_interface.h"
+#include "web_ui.h"
 #include "esp_log.h"
 #include "esp_check.h"
 
@@ -16,7 +16,7 @@ static httpd_handle_t server = NULL;
 
 // ! remember to free 'out' when not needed anymore
 int create_error_div(const char* err_msg, size_t err_msg_len, char** out){
-    static const char* error_div_style = "<div>";//"<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\">";
+    static const char* error_div_style = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\">";
 
     int out_len = strlen(error_div_style) + err_msg_len + strlen("</div>") + 1;
     *out = malloc(out_len);
@@ -155,8 +155,7 @@ esp_err_t index_handler(httpd_req_t *req){
 
 // HTTP Error (404) Handler - Redirects all requests to the root page
 esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
-    char content[100];
-    memset(content, 0, 100);
+    char content[100] = {0};
     httpd_req_get_url_query_str(req, content, 100);
     httpd_resp_set_status(req, "404 Not Found");
     httpd_resp_send(req, "icon not found", HTTPD_RESP_USE_STRLEN);
@@ -208,7 +207,7 @@ httpd_handle_t start_webserver(void){
     return server;
 }
 
-int start_web_interface(){
+int web_ui_start(){
     internal_events = xEventGroupCreate();
     if(internal_events == NULL)
         return 1;
@@ -217,14 +216,14 @@ int start_web_interface(){
     return server == NULL ? 2 : 0;
 }
 
-void stop_web_interface(){
+void web_ui_stop(){
     if(server)
         httpd_stop(server);
     
     vEventGroupDelete(internal_events);
 }
 
-int wait_for_credentials(){
+int web_ui_wait_for_credentials(){
     if(internal_events == NULL)
         return 1;
 

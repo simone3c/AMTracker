@@ -33,7 +33,7 @@
 #include "led_matrix.h"
 #include "csv_reader.h"
 #include "my_err.h"
-#include "web_interface.h"
+#include "web_ui.h"
 
 #include "wifi_credentials.h"
 
@@ -209,7 +209,7 @@ my_err_t read_schedule(train_t* trains, const char* file){
 
     csv_reader_deinit(&csv);
 
-    return NO_ERR;
+    return OK;
 }
 
 my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t* id_ret){
@@ -313,7 +313,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
             *col = LEDS[i].col;
             *id_ret = id;
 
-            return NO_ERR;
+            return OK;
         }
     }   
 
@@ -357,7 +357,7 @@ my_err_t get_ntp_clock(){
 
     esp_netif_sntp_deinit();
 
-    return NO_ERR;
+    return OK;
 }
 
 void gpio_init(){
@@ -456,35 +456,29 @@ void app_main(void){
         .ap = {
             .ssid = "esp32",
             .ssid_len = strlen("esp32"),
-            //.channel = EXAMPLE_ESP_WIFI_CHANNEL,
             .password = "",
             .max_connection = 1,
             .authmode = WIFI_AUTH_WPA2_PSK,
-            .pmf_cfg = {
-                .required = false,
-            },
+            .pmf_cfg.required = false,
         },
     };
 
     wifi_config_t sta_cfg = {
         .sta = {
-            .ssid = "\0",
-            .password = "\0",
-	     .threshold.authmode = WIFI_AUTH_OPEN,
-            .pmf_cfg = {
-                .capable = true,
-                .required = false
-            },
+            .ssid = {0},
+            .password = {0},
+	        .threshold.authmode = WIFI_AUTH_OPEN,
+            .pmf_cfg.required = false, // security feature
         },
     };
 
-    wifi_apsta_setup(&sta_cfg, &ap_cfg);
-    wifi_start();
+    ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
+    ESP_ERROR_CHECK(wifi_start());
 
-    ESP_ERROR_CHECK(start_web_interface());
+    web_ui_start();
     
     while(4){
-        if(wait_for_credentials() == 1){
+        if(web_ui_wait_for_credentials() == 1){
             ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
             assert(false);
         }
@@ -494,14 +488,15 @@ void app_main(void){
 
         memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
         memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
+        sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
-        if(wifi_apsta_connect_to(&sta_cfg) == 1) // connection established
+        if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established
             break;
 
         ESP_LOGI("main", "wrong credentials");
     }
 
-    stop_web_interface();
+    web_ui_stop();
 
     // TODO turn on error LED and exit
     if(get_ntp_clock())
@@ -511,7 +506,7 @@ void app_main(void){
 
     spiffs_init();
     my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
-    if(err != NO_ERR){
+    if(err != OK){
         // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %s - errno: %s", strerr(err), strerror(errno));
         
@@ -582,7 +577,7 @@ void app_main(void){
                 uint8_t row, col, id;
                 my_err_t err;
                 // convert from checkpoint and percentage to rows and columns of the LED matrix
-                if((err = train_to_led(&trains[i], &row, &col, &id)) == NO_ERR)
+                if((err = train_to_led(&trains[i], &row, &col, &id)) == OK)
                     led_matrix |= ((uint64_t)1 << col) << (8 * row);
                 else
                     ESP_LOGE("main", "%s", strerr(err));

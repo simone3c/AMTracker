@@ -1,24 +1,30 @@
+#include <string.h>
+#include <sys/socket.h>
+
 #include "include/my_wifi.h"
+#include "nvs_flash.h"
 #include "esp_log.h"
 #include "esp_event_base.h"
 #include "esp_system.h"
 #include "esp_event.h"
+#include "esp_check.h"
+
+#include "my_err.h"
+
+#define WIFI_CONNECTED BIT0
 
 static wifi_mode_t internal_wifi_mode = WIFI_MODE_NULL;
-static esp_event_handler_instance_t wifi_handler_event_instance, got_ip_event_instance;
 
-static esp_netif_t* sta_netif, *ap_netif;
+static esp_event_handler_instance_t wifi_handler_event_instance = NULL;
+static esp_event_handler_instance_t got_ip_event_instance = NULL;
 
-#define WIFI_CONNECTED_BIT BIT0
+static esp_netif_t* sta_netif = NULL;
+static esp_netif_t* ap_netif = NULL;
 
-// event group to contain status information
-static EventGroupHandle_t wifi_event_group;
-static int s_retry_num = 0;
+static EventGroupHandle_t wifi_event_group = NULL;
+static uint8_t sta_connection_retry_num = 0;
 
 void wifi_stop(){
-    
-    if(internal_wifi_mode == WIFI_MODE_NULL)
-        return;
 
     switch(internal_wifi_mode){
     case WIFI_MODE_STA:
@@ -36,11 +42,9 @@ void wifi_stop(){
         ap_netif = NULL;
     break;
     default:
-        assert(false);
-    break;
+        return;
     }
-
-
+    
     internal_wifi_mode = WIFI_MODE_NULL;
  
     esp_wifi_disconnect();
@@ -62,82 +66,85 @@ void wifi_stop_and_deinit(){
 
 // event handler for wifi and IP events
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data){
-	if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START){
+	if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START){
 		ESP_LOGI("wifi_event_handler", "Registered event: WIFI_EVENT_STA_START");
         
-        if(internal_wifi_mode == WIFI_MODE_STA)
+        if(internal_wifi_mode == WIFI_MODE_STA){
 		    esp_wifi_connect();
+        }
 	}
 
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED){
-		if (s_retry_num < MAX_FAILURES){
+    else if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED){
+		if(sta_connection_retry_num < MAX_FAILURES){
 		    ESP_LOGI("wifi_event_handler", "Registered event: WIFI_EVENT_STA_DISCONNECTED");
 			esp_wifi_connect();
-			++s_retry_num;
+			++sta_connection_retry_num;
             return;
 		}
         xEventGroupSetBits(wifi_event_group, WIFI_FAILURE);
 	}
 
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
+    else if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
         wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
         ESP_LOGI("wifi_event_handler", "Registered event: WIFI_EVENT_AP_STACONNECTED");
     } 
     
-    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+    else if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
         wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *) event_data;
         ESP_LOGI("wifi_event_handler", "Registered event: WIFI_EVENT_AP_STADISCONNECTED");
     }
 
-    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP){
+    else if(event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP){
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI("Wifi", "STA IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        s_retry_num = 0;
-        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
+        sta_connection_retry_num = 0;
+        xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED);
     }
 }
 
 // init STA wifi
-void wifi_sta_init(wifi_config_t* sta_cfg){
+static esp_err_t wifi_sta_init(wifi_config_t* sta_cfg){
 
     if(sta_cfg == NULL){
-        return;
+        return ESP_ERR_INVALID_ARG;
     }
 
 	sta_netif = esp_netif_create_default_wifi_sta();
 
-    // set the wifi config
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, sta_cfg));
-
-    ESP_LOGI("wifi_sta_init", "STA initialization complete");
+    return esp_wifi_set_config(WIFI_IF_STA, sta_cfg);
 }
 
 // init AP wifi
-void wifi_ap_init(wifi_config_t* ap_cfg){
+static esp_err_t wifi_ap_init(wifi_config_t* ap_cfg){
 
-    if(ap_cfg == NULL)
-        return;
+    if(ap_cfg == NULL){
+        return ESP_ERR_INVALID_ARG;
+    }
 
     ap_netif = esp_netif_create_default_wifi_ap();
+
+    ESP_RETURN_ON_FALSE(ap_netif, ESP_ERR_ESP_NETIF_BASE, "wifi_ap_init", "Cannot create_default_wifi_ap");
 
     if(strlen((char*)ap_cfg->ap.password) == 0) {
         ap_cfg->ap.authmode = WIFI_AUTH_OPEN;
     }
 
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, ap_cfg));
+    return esp_wifi_set_config(WIFI_IF_AP, ap_cfg);
 
     // ESP_LOGI(TAG_AP, "wifi_init_softap finished. SSID:%s password:%s channel:%d",
     //          EXAMPLE_ESP_WIFI_AP_SSID, EXAMPLE_ESP_WIFI_AP_PASSWD, EXAMPLE_ESP_WIFI_CHANNEL);
 
-    ESP_LOGI("wifi_ap_init", "Finished to set up AP mode");
 }
 
-void wifi_apsta_init(wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
-    wifi_sta_init(sta_cfg);
-    wifi_ap_init(ap_cfg);
+// Init AP-STA wifi 
+static esp_err_t wifi_apsta_init(wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
+    ESP_RETURN_ON_ERROR(wifi_sta_init(sta_cfg), "wifi_apsta_init", "Failed at configuring STA");
+    ESP_RETURN_ON_ERROR(wifi_ap_init(ap_cfg), "wifi_apsta_init", "Failed at configuring AP");
+
+    return ESP_OK;
 }
 
-void wifi_setup(wifi_mode_t mode, wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
+static esp_err_t wifi_setup(wifi_mode_t mode, wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
 
     // initialize storage
     esp_err_t ret = nvs_flash_init();
@@ -156,22 +163,29 @@ void wifi_setup(wifi_mode_t mode, wifi_config_t* sta_cfg, wifi_config_t* ap_cfg)
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    internal_wifi_mode = mode;
     ESP_ERROR_CHECK(esp_wifi_set_mode(mode));
+    internal_wifi_mode = mode;
+
     switch(mode){
     case WIFI_MODE_AP:
-        wifi_ap_init(ap_cfg);
+        ret = wifi_ap_init(ap_cfg);
     break;
     case WIFI_MODE_STA:
-        wifi_sta_init(sta_cfg);
+        ret = wifi_sta_init(sta_cfg);
     break;
     case WIFI_MODE_APSTA:
-        wifi_apsta_init(sta_cfg, ap_cfg);
+        ret = wifi_apsta_init(sta_cfg, ap_cfg);
     break;
     default:
-        assert(false);
+        internal_wifi_mode = WIFI_MODE_NULL;
+        return ESP_FAIL;
     }
 
+    if(ret != ESP_OK){
+        internal_wifi_mode = WIFI_MODE_NULL;
+        return ret;
+    }
+    
     wifi_event_group = xEventGroupCreate();
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
@@ -189,48 +203,54 @@ void wifi_setup(wifi_mode_t mode, wifi_config_t* sta_cfg, wifi_config_t* ap_cfg)
         &got_ip_event_instance)
     );
 
+    return ESP_OK;
 }
 
-void wifi_sta_setup(wifi_config_t* sta_cfg){
-    wifi_setup(WIFI_MODE_STA, sta_cfg, NULL);
+esp_err_t wifi_sta_setup(wifi_config_t* sta_cfg){
+    esp_err_t ret = wifi_setup(WIFI_MODE_STA, sta_cfg, NULL);
+    ESP_LOGI("wifi_sta_setup", "STA initialization complete");
+    return ret;
 }
 
-void wifi_apsta_setup(wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
-    wifi_setup(WIFI_MODE_APSTA, sta_cfg, ap_cfg);
+esp_err_t wifi_apsta_setup(wifi_config_t* sta_cfg, wifi_config_t* ap_cfg){
+    esp_err_t ret = wifi_setup(WIFI_MODE_APSTA, sta_cfg, ap_cfg);
+    ESP_LOGI("wifi_ap_init", "Finished to set up AP mode");
+    return ret;
 }
 
-void wifi_ap_setup(wifi_config_t* ap_cfg){
-    wifi_setup(WIFI_MODE_AP, NULL, ap_cfg);
+esp_err_t wifi_ap_setup(wifi_config_t* ap_cfg){
+    esp_err_t ret = wifi_setup(WIFI_MODE_AP, NULL, ap_cfg);
+    ESP_LOGI("wifi_ap_setup", "Finished to set up AP mode");
+    return ret;
 }
 
-int wait_sta_connection(){
+my_err_t wait_sta_connection(){
 
-    int status = -1;
+    my_err_t status = OK;
 
     EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
-        WIFI_CONNECTED_BIT | WIFI_FAILURE,
+        WIFI_CONNECTED | WIFI_FAILURE,
         pdFALSE,
         pdFALSE,
         portMAX_DELAY
     );
 
-    if (bits & WIFI_CONNECTED_BIT) {
+    if (bits & WIFI_CONNECTED) {
         ESP_LOGI("wait_sta_connection", "Connected to ap");
-        status = WIFI_CONNECTED_BIT;
     } else if (bits & WIFI_FAILURE) {
         ESP_LOGI("wait_sta_connection", "Failed to connect to ap");
-        status = WIFI_FAILURE;
+        status = WIFI_STA_CANNOT_CONNECT;
     } else {
         ESP_LOGE("wait_sta_connection", "UNEXPECTED EVENT");
-        status = WIFI_FAILURE;
+        status = UNKNOW_ERR;
     }
 
     return status;
 }
 
-int wifi_start(){
+esp_err_t wifi_start(){
 
-    int status = -1;
+    esp_err_t status = ESP_OK;
 
     wifi_config_t sta_cfg;
 
@@ -253,7 +273,9 @@ int wifi_start(){
         if(strlen((char*)sta_cfg.sta.ssid) > 0){
             status = wait_sta_connection();
         }
+
         __attribute__ ((fallthrough));
+
     case WIFI_MODE_AP:
         esp_netif_ip_info_t ip_info;
         esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
@@ -263,23 +285,22 @@ int wifi_start(){
         ESP_LOGI("wifi_start", "Set up softAP with IP: %s", ip_addr);
     break;
     default:
-        assert(false);
-    break;
+        return ESP_ERR_WIFI_MODE;
     }
 
     return status;
 }
 
-int wifi_apsta_connect_to(wifi_config_t* sta_cfg){
+esp_err_t wifi_apsta_connect_to(wifi_config_t* sta_cfg){
 
     if(internal_wifi_mode != WIFI_MODE_APSTA){
         ESP_LOGE("wifi_apsta_connect_to", "wifi mode is not set to APSTA!");
-        return -1;
+        return ESP_ERR_WIFI_MODE;
     }
 
     if(strlen((char*)sta_cfg->sta.ssid) == 0){
         ESP_LOGI("wifi_apsta_connect_to", "called wifi_apsta_connect_to() but ssid is not properly configured... strlen(ssid) == 0");
-        return -2;
+        return ESP_ERR_WIFI_SSID;
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, sta_cfg));

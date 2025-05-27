@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "web_interface.c" "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
+    SRCS "web_ui.c" "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
     INCLUDE_DIRS "include/"
     REQUIRES 
         spiffs 

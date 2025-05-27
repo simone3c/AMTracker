@@ -7,8 +7,8 @@
 
 #include "my_err.h"
 
-int start_web_interface();
-void stop_web_interface();
-int wait_for_credentials();
+int web_ui_start();
+void web_ui_stop();
+int web_ui_wait_for_credentials();
 
 #endif
