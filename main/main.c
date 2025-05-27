@@ -397,6 +397,12 @@ void timer_init(){
     ESP_ERROR_CHECK(gptimer_enable(timer));
 }
 
+void handle_deepsleep_reset(){
+// take vredentials from NVS
+
+// connect to the specified AP
+// if cannot connect then deepsleep
+}
 
 // ! correctly initialise nvs(?) otherwise it doesnt mount 
 // ! (now it works only after wifi and sntp set up something (nvs?))
@@ -416,19 +422,17 @@ void app_main(void){
 
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
 
+    // first train of each period
     // [0] is SUNDAY
     // [1] is MON_FRI
     // [2] is SATURDAY
     // initialisation is useful when filling the array
     schedule_t first_train[3] = {
-        {100, 100, 100},
-        {100, 100, 100},
-        {100, 100, 100},
+        {100, 100, 100}, // SUNDAY
+        {100, 100, 100}, // MON_FRI
+        {100, 100, 100}, // SATURDAY
     };
     schedule_t last_train[3] = {0};
-    
-    gpio_init();
-    timer_init();
 
     // ----------------Initialize NVS
     // esp_err_t eerr = nvs_flash_init();
@@ -475,30 +479,40 @@ void app_main(void){
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
     ESP_ERROR_CHECK(wifi_start());
 
-    web_ui_start();
-    
-    while(4){
-        if(web_ui_wait_for_credentials() == 1){
-            ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
-            assert(false);
-        }
-
-        // take credentials from NVS...
-        // ...put them into sta_cfg
-
-        memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
-        memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
-        sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-
-        if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established
-            break;
-
-        ESP_LOGI("main", "wrong credentials");
+    if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
+        handle_deepsleep_reset();
     }
 
-    web_ui_stop();
+    else{
+        
+        web_ui_start();
+    
+        while(4){
+            if(web_ui_wait_for_credentials() == 1){
+                ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
+                assert(false);
+            }
 
-    // TODO turn on error LED and exit
+            web_ui_get_credentials(&sta_cfg.sta.ssid[0], &sta_cfg.sta.password[0]);
+            // ...put them into sta_cfg
+
+            memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
+            memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
+            sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+
+            if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established
+                break;
+
+            ESP_LOGI("main", "wrong credentials");
+        }
+
+        web_ui_stop();
+    }
+
+    gpio_init();
+    timer_init();
+
+    // TODO better error handling
     if(get_ntp_clock())
         ESP_LOGE("main", "ERROR NTP");
 

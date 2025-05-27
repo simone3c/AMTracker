@@ -4,10 +4,16 @@
 
 #include "my_wifi.h"
 
+#define INDEX_QUERY_KEY "method"
+#define INDEX_QUERY_VALUE_LEN_MAX 4
+
+// index.html
 extern const char index_start[] asm("_binary_index_html_start");
 extern const char index_end[] asm("_binary_index_html_end");
+// new_sta.html
 extern const char new_sta_start[] asm("_binary_new_sta_html_start");
 extern const char new_sta_end[] asm("_binary_new_sta_html_end");
+// exit.html
 extern const char exit_html_start[] asm("_binary_bye_html_start");
 extern const char exit_html_end[] asm("_binary_bye_html_end");
 
@@ -15,7 +21,7 @@ static EventGroupHandle_t internal_events = NULL;
 static httpd_handle_t server = NULL;
 
 // ! remember to free 'out' when not needed anymore
-int create_error_div(const char* err_msg, size_t err_msg_len, char** out){
+static esp_err_t create_error_div(const char* err_msg, size_t err_msg_len, char** out){
     static const char* error_div_style = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\">";
 
     int out_len = strlen(error_div_style) + err_msg_len + strlen("</div>") + 1;
@@ -31,10 +37,11 @@ int create_error_div(const char* err_msg, size_t err_msg_len, char** out){
     strncat(*out, err_msg, err_msg_len);
     strcat(*out, "</div>");
 
-    return 0;
+    return ESP_OK;
 }
 
-esp_err_t new_sta_handler(httpd_req_t *req){
+// TODO
+static esp_err_t new_sta_handler(httpd_req_t *req){
     static wifi_ap_record_t ap_info[20];
     uint16_t ap_count = 0;
 
@@ -77,24 +84,29 @@ esp_err_t new_sta_handler(httpd_req_t *req){
     return ESP_OK;
 }
 
-int get_credentials_from_nvs(){
+static int get_credentials_from_nvs(){
     return 0;
 }
 
-int send_new_sta_page(httpd_req_t* req){
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, new_sta_start, new_sta_end - new_sta_start);
+static esp_err_t send_new_sta_page(httpd_req_t* req){
+    ESP_RETURN_ON_ERROR(
+        httpd_resp_set_type(req, "text/html"), 
+        "send_new_sta_page", 
+        "cannot set response type"
+    );
+    ESP_RETURN_ON_ERROR(
+        httpd_resp_send(req, new_sta_start, new_sta_end - new_sta_start), 
+        "send_new_sta_page",
+        "cannot send http response"
+    );
 
-    return 0;
+    return ESP_OK;
 }
 
-esp_err_t index_handler(httpd_req_t *req){
-
-    #define KEY "method"
-    #define VALUE_LEN 4
+static int index_handler(httpd_req_t *req){
 
     char query[100] = {0};
-    char value[VALUE_LEN] = {0};
+    char value[INDEX_QUERY_VALUE_LEN_MAX] = {0};
     
     if(httpd_req_get_url_query_str(req, &query[0], 100) != ESP_OK){
         httpd_resp_set_type(req, "text/html");
@@ -106,7 +118,7 @@ esp_err_t index_handler(httpd_req_t *req){
     ESP_LOGI("root_get_handler", "QUERY: '%s'", query);
 
     // bad GET values, responding with index.html + an error message in the page
-    if(httpd_query_key_value(query, KEY, &value[0], VALUE_LEN) != ESP_OK || 
+    if(httpd_query_key_value(query, INDEX_QUERY_KEY, &value[0], INDEX_QUERY_VALUE_LEN_MAX) != ESP_OK || 
         (strcmp(value, "NVS") && strcmp(value, "NEW"))
     ){
 
@@ -178,13 +190,13 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
 httpd_handle_t start_webserver(void){
 
     // ! switch to POST
-    static const httpd_uri_t index_uri = {
+    const httpd_uri_t index_uri = {
         .uri = "/index",
         .method = HTTP_GET,
         .handler = index_handler
     };
     // ! switch to POST
-    static const httpd_uri_t new_sta_uri = {
+    const httpd_uri_t new_sta_uri = {
         .uri = "/new_sta",
         .method = HTTP_GET,
         .handler = new_sta_handler
@@ -232,3 +244,10 @@ int web_ui_wait_for_credentials(){
     return 0;
 }
 
+// 32 and 64 are standard lenght limitations for AP's SSID and password
+void web_ui_get_credentials(uint8_t* ssid, uint8_t* pwd){
+    // get from nvs
+
+    // strncpy(ssid, temp, 32);
+    // strncpy(ssid, pwd, 64);
+}
