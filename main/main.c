@@ -35,7 +35,8 @@
 #include "my_err.h"
 #include "web_ui.h"
 
-#include "wifi_credentials.h"
+
+//#include "wifi_credentials.h"
 
 static gptimer_handle_t timer = NULL;
 

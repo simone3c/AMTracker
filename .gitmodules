@@ -1,3 +1,6 @@
 [submodule "Csv_reader"]
 	path = components/csv_reader/csv_reader
 	url = https://github.com/simone3c/Csv_reader
+[submodule "components/html_parser/html_parser"]
+	path = components/html_parser/html_parser
+	url = https://github.com/lexbor/lexbor.git

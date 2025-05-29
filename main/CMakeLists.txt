@@ -9,6 +9,7 @@ idf_component_register(
         sn74hc595 
         led_matrix 
         csv_reader
+        html_parser
         esp_http_server
         esp_wifi
     EMBED_FILES 
