@@ -397,11 +397,31 @@ void timer_init(){
     ESP_ERROR_CHECK(gptimer_enable(timer));
 }
 
-void handle_deepsleep_reset(){
-// take vredentials from NVS
+my_err_t handle_deepsleep_reset(){
 
-// connect to the specified AP
-// if cannot connect then deepsleep
+    size_t ssid_len = 32;
+    size_t pwd_len = 64;
+
+    wifi_config_t sta_cfg = {
+        .sta = {
+            .ssid = {0},
+            .password = {0},
+	        .threshold.authmode = WIFI_AUTH_WPA2_PSK,
+            .pmf_cfg.required = false, // security feature
+        },
+    };
+
+    ESP_ERROR_CHECK(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len));
+    if(sta_cfg.sta.ssid[0] == 0){
+        return NO_CREDENTIALS_AVAILABLE;
+    }
+
+    if(wifi_apsta_connect_to(&sta_cfg) != ESP_OK){
+        wifi_stop_and_deinit();
+        esp_deep_sleep(60 * 10 * 1000000); // sleep 10 min
+    }
+
+    return ESP_OK;
 }
 
 // ! correctly initialise nvs(?) otherwise it doesnt mount 
@@ -414,6 +434,15 @@ void spiffs_init(){
         .format_if_mount_failed = false
     };
     ESP_ERROR_CHECK(esp_vfs_spiffs_register(&spiffs_cfg));
+}
+
+void nvs_init(){
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
 }
 
 void app_main(void){
@@ -433,28 +462,6 @@ void app_main(void){
         {100, 100, 100}, // SATURDAY
     };
     schedule_t last_train[3] = {0};
-
-    // ----------------Initialize NVS
-    // esp_err_t eerr = nvs_flash_init();
-    // if (eerr == ESP_ERR_NVS_NO_FREE_PAGES || eerr == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    //     // NVS partition was truncated and needs to be erased
-    //     // Retry nvs_flash_init
-    //     ESP_ERROR_CHECK(nvs_flash_erase());
-    //     eerr = nvs_flash_init();
-    // }
-    // ESP_ERROR_CHECK(eerr);
-
-    // uint8_t c = 0, m = 34;
-    // nvs_handle_t nvs;
-    // ESP_ERROR_CHECK(nvs_open("nvs", NVS_READWRITE, &nvs));
-    // eerr = nvs_get_u8(nvs, "ssid", &m);
-    // if(eerr == ESP_OK){
-    //     ESP_LOGI("NVS", "ssid is '%"PRIu8"'", m);
-    //     nvs_set_u8(nvs, "ssid", m+1);}
-    // else 
-    //     ESP_LOGE("error", "%s", esp_err_to_name(eerr));
-
-    // return;
 
     wifi_config_t ap_cfg = {
         .ap = {
@@ -476,14 +483,21 @@ void app_main(void){
         },
     };
 
+    nvs_init();
+
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
     ESP_ERROR_CHECK(wifi_start());
 
+    my_err_t cred_status = NO_CREDENTIALS_AVAILABLE;
+
     if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
-        handle_deepsleep_reset();
+        cred_status = handle_deepsleep_reset();
     }
 
-    else{
+    if(cred_status == NO_CREDENTIALS_AVAILABLE){
+
+        size_t ssid_len = 32;
+        size_t pwd_len = 64;
         
         web_ui_start();
     
@@ -493,12 +507,12 @@ void app_main(void){
                 assert(false);
             }
 
-            web_ui_get_credentials(&sta_cfg.sta.ssid[0], &sta_cfg.sta.password[0]);
+            web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len);
             // ...put them into sta_cfg
 
-            memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
-            memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
-            sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+            // memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
+            // memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
+            // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
             if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established
                 break;
