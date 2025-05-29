@@ -15,8 +15,6 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] train display
 - [ ] captive portal for AP config
 - [ ] automatic selection of custom partition table/target/flash method(automatic SDK cofiguration)
-- [ ] error handling during startup (no wifi - ntp sync fail - ...)
-- [x] error handling during exec
 - [ ] power management
 - [ ] UI (power button - errors - train scan rate - wifi connection? - ...)
 - [ ] OTA for timetable update
