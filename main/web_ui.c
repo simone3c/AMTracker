@@ -1,11 +1,14 @@
 #include "my_wifi.h"
 #include "web_ui.h"
+#include "my_string.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_check.h"
 #include "nvs.h"
 
+
+#define QUERY_LEN_MAX 100
 
 #define INDEX_QUERY_KEY "method"
 #define INDEX_QUERY_VALUE_LEN_MAX 4
@@ -21,28 +24,25 @@ extern const char new_sta_end[] asm("_binary_new_sta_html_end");
 // exit.html
 extern const char exit_html_start[] asm("_binary_bye_html_start");
 extern const char exit_html_end[] asm("_binary_bye_html_end");
+// error.html
+extern const char error_html_start[] asm("_binary_error_html_start");
+extern const char error_html_end[] asm("_binary_error_html_end");
 
 static EventGroupHandle_t internal_events = NULL;
 static httpd_handle_t server = NULL;
 
 // ! remember to free 'out' when not needed anymore
-static esp_err_t create_error_div(const char* err_msg, size_t err_msg_len, char** out){
-    static const char* error_div_style = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\">";
+static my_string create_error_div(const char* err_msg, size_t err_msg_len){
+    const char* error_div = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\"></div>";
 
-    int out_len = strlen(error_div_style) + err_msg_len + strlen("</div>") + 1;
-    *out = malloc(out_len);
+    my_string ret;
+    my_string_init_from_array(&ret, error_div, strlen(error_div));
 
-//    ESP_LOGE("create_error_div", "len: %i - *out: %s", out_len, !*out ? "NULL" : "aaaaaaaaaaaaaaaa");
+    int at = my_string_strstr(&ret, "</div>");
 
-    ESP_RETURN_ON_FALSE(*out, ESP_ERR_NO_MEM, "create_error_div", "error message allocation failed");
-
-    memset(*out, 0, out_len);
-
-    strcat(*out, error_div_style);
-    strncat(*out, err_msg, err_msg_len);
-    strcat(*out, "</div>");
-
-    return ESP_OK;
+    assert(at >= 0);
+    my_string_insert_array_at(&ret, at, err_msg, err_msg_len);
+    return ret;
 }
 
 // TODO
@@ -103,48 +103,58 @@ static esp_err_t send_new_sta_page(httpd_req_t* req){
     return ESP_OK;
 }
 
-static int send_index_with_error(httpd_req_t *req, const char* error_msg){
-    char* error_div;
-    int t = create_error_div(error_msg, strlen(error_msg), &error_div);
-    if(t != ESP_OK){
-        return ESP_ERR_NO_MEM; 
-    }
+// return the lengh of the string which contains the new div
+static size_t add_error_div(my_string* page, const char* error_msg, size_t error_len){
+    my_string error_div = create_error_div(error_msg, error_len);
     
-    uint16_t error_div_len = strlen(error_div);
-    uint16_t index_len = index_end - index_start;
-    uint16_t resp_len = index_len + error_div_len;
+    int at = my_string_strstr(page, "<body>") + strlen("<body>"); // points to the end of <body> inside index
+    my_string_insert_at(page, at, &error_div);
 
-    char* resp = malloc(resp_len);
-    ESP_RETURN_ON_FALSE(resp, ESP_ERR_NO_MEM, "index_hanlder", "response allocation failed 2");
-    memset(resp, 0, resp_len);
-    
-    char* add_ptr = strstr(index_start, "<body>") + strlen("<body>"); // points to the end of <body> inside index
-    int add_idx = add_ptr - index_start;
+    my_string_delete(&error_div);
 
-    memcpy(resp, index_start, add_idx); // cpy first part of index
-    memcpy(resp + add_idx, error_div, error_div_len); // cpy error div
-    memcpy(resp + add_idx + error_div_len, add_ptr, index_end - add_ptr); // cpy last part of index
-
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, resp, resp_len);
-
-    free(error_div);
-    free(resp);
-
-    return ESP_OK;
+    return page->len;
 }
 
-static int index_handler(httpd_req_t *req){
+static esp_err_t send_html_page(httpd_req_t* req, const char* html, size_t len){
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, html, len);
+}
 
-    char query[100] = {0};
-    char value[INDEX_QUERY_VALUE_LEN_MAX] = {0};
-    esp_err_t err;
-    if((err = httpd_req_get_url_query_str(req, &query[0], 100)) != ESP_OK){
-        ESP_LOGE("idnex_handler", "GET query is empty, error: '%s'", esp_err_to_name(err));
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_send(req, index_start, index_end - index_start);
+
+static int index_handler(httpd_req_t *req){
+    esp_err_t err = ESP_OK;
+
+    uint8_t ssid[MAX_SSID_LEN] = {0};
+    uint8_t pwd[MAX_PASSPHRASE_LEN] = {0};
+    size_t ssid_len = MAX_SSID_LEN;
+    size_t pwd_len = MAX_PASSPHRASE_LEN;
+
+    my_string resp;
+    my_string_init_from_array(&resp, index_start, index_end - index_start);
+
+    esp_err_t credentials_status = web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len);
+    if(credentials_status != ESP_OK){
+        ESP_LOGE("index_handler", "no NVS available");
         
-        return ESP_OK;
+        // disable button for using saved WiFi    
+        int at = my_string_strstr(&resp, "></button>");
+        assert(at >= 0);
+        my_string_insert_array_at(&resp, at, "disabled", 8);   
+    }
+
+    int at = my_string_strstr(&resp, "</button>");
+    assert(at >= 0);
+    my_string_insert_array_at(&resp, at, (const char*)ssid, ssid_len);
+
+    char query[QUERY_LEN_MAX] = {0};
+    char value[INDEX_QUERY_VALUE_LEN_MAX] = {0};
+
+    if(httpd_req_get_url_query_str(req, &query[0], QUERY_LEN_MAX) != ESP_OK){
+
+        err = send_html_page(req, resp.data, resp.len);
+        my_string_delete(&resp);
+        
+        return err;
     }
 
     ESP_LOGI("root_get_handler", "QUERY: '%s'", query);
@@ -153,30 +163,36 @@ static int index_handler(httpd_req_t *req){
     if(httpd_query_key_value(query, INDEX_QUERY_KEY, &value[0], INDEX_QUERY_VALUE_LEN_MAX) != ESP_OK || 
         (strcmp(value, "NVS") && strcmp(value, "NEW"))
     ){
-        return send_index_with_error(req, "Bad Request");
+        const char* error_msg = "Bad request";
+
+        add_error_div(&resp, error_msg, strlen(error_msg));
+        err = send_html_page(req, resp.data, resp.len);
+        my_string_delete(&resp);
+
+        return err;
     }
 
-    if(strcmp(value, "NVS") == 0){
+    if(strncmp(value, "NVS", 4) == 0){
+        
+        if(credentials_status != ESP_OK){
+            const char* error_msg = "Unavailable credentials, try using a new WiFi network";
 
-        uint8_t ssid[32] = {0};
-        uint8_t pwd[64] = {0};
-        size_t ssid_len = 32;
-        size_t pwd_len = 64;
+            add_error_div(&resp, error_msg, strlen(error_msg));
+            err = send_html_page(req, resp.data, resp.len);
+            my_string_delete(&resp);
 
-        if(web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len) != ESP_OK){
-            return send_index_with_error(req, "Unavailable credentials, try using a different WiFi network");
+            return err;
         }
+
+        err = send_html_page(req, exit_html_start, exit_html_end - exit_html_start);
         
         xEventGroupSetBits(internal_events, CREDENTIALS_READY);
-
-        return ESP_OK;
+        my_string_delete(&resp);
+        return err;
     }
 
-    else{
-        send_new_sta_page(req);
-    }
-
-    return ESP_OK;    
+    my_string_delete(&resp);
+    return send_new_sta_page(req);
 }
 
 // HTTP Error (404) Handler - Redirects all requests to the root page
@@ -184,7 +200,7 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
     char content[100] = {0};
     httpd_req_get_url_query_str(req, content, 100);
     httpd_resp_set_status(req, "404 Not Found");
-    httpd_resp_send(req, "icon not found", HTTPD_RESP_USE_STRLEN);
+    httpd_resp_send(req, "file not found", HTTPD_RESP_USE_STRLEN);
     ESP_LOGE("http_404_error_handler", "Cannot find '%s'", content);
 
     return ESP_OK;
@@ -260,7 +276,8 @@ int web_ui_wait_for_credentials(){
     return 0;
 }
 
-// 32 and 64 are standard lenght limitations for AP's SSID and password
+// in case of failure, ssid will contain "No WiFi network saved" while pwd will be empty.
+// ssid_len and pwd_len are always set accordingly
 esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, size_t* pwd_len){
     esp_err_t err;
     nvs_handle_t nvs;
@@ -268,15 +285,23 @@ esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, 
 
     err = nvs_get_blob(nvs, "wifi_ssid", ssid, ssid_len);
     if(err != ESP_OK){
-        nvs_close(nvs);
-        return err;
+        goto FAIL;
     }
 
     err = nvs_get_blob(nvs, "wifi_pwd", pwd, pwd_len);
     if(err != ESP_OK){
-        nvs_close(nvs);
-        return err;
+        goto FAIL;
     }
 
     return ESP_OK;
+
+FAIL:
+
+    const char* msg = "No WiFi network saved";
+    *ssid_len = strlen((const char*)msg);// must be < 32
+    memcpy(ssid, msg, *ssid_len);
+
+    *pwd_len = 0;
+    nvs_close(nvs);
+    return err;
 }

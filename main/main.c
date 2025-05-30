@@ -35,7 +35,7 @@
 #include "my_err.h"
 #include "web_ui.h"
 
-#include "wifi_credentials.h"
+//#include "wifi_credentials.h"
 
 static gptimer_handle_t timer = NULL;
 
@@ -397,6 +397,7 @@ void timer_init(){
     ESP_ERROR_CHECK(gptimer_enable(timer));
 }
 
+// ! TEST
 my_err_t handle_deepsleep_reset(){
 
     size_t ssid_len = 32;
@@ -496,8 +497,8 @@ void app_main(void){
 
     if(cred_status == NO_CREDENTIALS_AVAILABLE){
 
-        size_t ssid_len = 32;
-        size_t pwd_len = 64;
+        size_t ssid_len = MAX_SSID_LEN;
+        size_t pwd_len = MAX_PASSPHRASE_LEN;
         
         web_ui_start();
     
@@ -508,10 +509,7 @@ void app_main(void){
             }
 
             web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len);
-            // ...put them into sta_cfg
 
-            // memcpy(&sta_cfg.sta.ssid, SSID, strlen(SSID));
-            // memcpy(&sta_cfg.sta.password, PWD, strlen(PWD));
             // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
             if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established

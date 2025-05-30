@@ -11,6 +11,7 @@ idf_component_register(
         csv_reader
         esp_http_server
         esp_wifi
+        my_string
     EMBED_FILES 
         html/index.html
         html/new_sta.html
