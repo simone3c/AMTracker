@@ -14,9 +14,9 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] train localization
 - [x] train display
 - [ ] captive portal for AP config
-- [ ] automatic selection of custom partition table/target/flash method(automatic SDK cofiguration)
+- [x] automatic SDK cofiguration
 - [ ] power management
-- [ ] UI (power button - errors - train scan rate - wifi connection? - ...)
+- [ ] UI (power button - errors - train scan rate - ...)
 - [ ] OTA for timetable update
 - [ ] Doc
 - [ ] PCB
@@ -43,7 +43,7 @@ and download the required Git submodules
     > git submodule update --remote
 ```
 
-Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros ```PSW``` and ```SSID``` in order to connect to your access point 
+Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros ```PSW``` and ```SSID``` in order to connect to your access point
 
 Change the NTP server inside ```components/ntp_client/ntp_client.c``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))
 
@@ -89,7 +89,7 @@ When everything is connected, the last step is to flash the code and finally run
 **Note**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment the flag back to save time on future flash operations
 
-## PCB 
+## PCB
 
 **TODO**
 
