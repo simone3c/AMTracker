@@ -5,9 +5,17 @@
 </head>
 <body>
     <h2>WiFi Configuration Form</h2>
-    <form method="GET" action="/new_sta">
-        <label for="ssid">SSID:</label><br>
-        <input type="text" id="ssid" name="ssid" required><br><br>
+    <form method="post" action="/new_sta_form">
+        
+        <label for="ssid">Select SSID:</label>
+        <select id="ssid" name="ssid" required>
+            <option value="">-- Choose a network --</option>
+            <option value="Network_1">Network_1</option>
+            <option value="Network_2">Network_2</option>
+            <option value="Network_3">Network_3</option>
+            <option value="Custom">Custom SSID</option>
+        </select>
+
         <label for="password">Password:</label><br>
         <input type="password" id="password" name="password" required><br><br>
         <input type="submit" value="Connect">

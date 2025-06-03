@@ -45,62 +45,18 @@ static my_string create_error_div(const char* err_msg, size_t err_msg_len){
     return ret;
 }
 
-// TODO
-static esp_err_t new_sta_handler(httpd_req_t *req){
-    static wifi_ap_record_t ap_info[20];
-    uint16_t ap_count = 0;
-
-    wifi_scan(ap_info, &ap_count);
-
-    char content[100];
-    memset(content, 0, 100);
-    httpd_req_get_url_query_str(req, content, 100);
-    ESP_LOGI("root_get_handler", "URL: '%s'", content);
-
-    char tmp[32] = {0};
-    char query[32] = {0};
-    
-    httpd_req_get_url_query_str(req, query, 32);
-    httpd_query_key_value(query, "ssid", &tmp[0], 32);
-
-    if(!strcmp(tmp, "v")){
-
-        ESP_LOGI("root_get_handler", "Closing HTPP server");
-
-
-        const uint32_t exit_len = exit_html_end - exit_html_start;
-
-        ESP_LOGI("root_get_handler", "Serve root");
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_send(req, exit_html_start, exit_len);
-
-        xEventGroupSetBits(internal_events, CREDENTIALS_READY);
-
-        return ESP_OK;
-    }
-
-    const uint32_t root_len = index_end - index_start;
-
-    ESP_LOGI("root_get_handler", "Serve root");
+static esp_err_t send_html_page(httpd_req_t* req, const char* html, size_t len){
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, index_start, root_len);
-
-    return ESP_OK;
+    return httpd_resp_send(req, html, len);
 }
 
 static esp_err_t send_new_sta_page(httpd_req_t* req){
-    ESP_RETURN_ON_ERROR(
-        httpd_resp_set_type(req, "text/html"), 
-        "send_new_sta_page", 
-        "cannot set response type"
-    );
-    ESP_RETURN_ON_ERROR(
-        httpd_resp_send(req, new_sta_start, new_sta_end - new_sta_start), 
-        "send_new_sta_page",
-        "cannot send http response"
-    );
+    return send_html_page(req, new_sta_start, new_sta_end - new_sta_start);
+}
 
-    return ESP_OK;
+// TODO
+static esp_err_t new_sta_handler(httpd_req_t *req){
+    return send_new_sta_page(req);
 }
 
 // return the lengh of the string which contains the new div
@@ -114,12 +70,6 @@ static size_t add_error_div(my_string* page, const char* error_msg, size_t error
 
     return page->len;
 }
-
-static esp_err_t send_html_page(httpd_req_t* req, const char* html, size_t len){
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, html, len);
-}
-
 
 static int index_handler(httpd_req_t *req){
     esp_err_t err = ESP_OK;
@@ -217,19 +167,35 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
     // return ESP_OK;
 }
 
+static esp_err_t new_sta_form_handler(httpd_req_t* req){
+    char query[300] = {0};
+    ESP_LOGI("new_sta_form_handler", "here");
+
+    assert(httpd_req_recv(req, &query[0], 300) > 0);
+
+    printf("'%s'", query);
+    
+    return send_new_sta_page(req);
+}
+
 httpd_handle_t start_webserver(void){
 
-    // ! switch to POST
     const httpd_uri_t index_uri = {
         .uri = "/index",
         .method = HTTP_GET,
         .handler = index_handler
     };
-    // ! switch to POST
+
     const httpd_uri_t new_sta_uri = {
         .uri = "/new_sta",
         .method = HTTP_GET,
         .handler = new_sta_handler
+    };
+
+    const httpd_uri_t new_sta_form_uri = {
+        .uri = "/new_sta_form",
+        .method = HTTP_POST,
+        .handler = new_sta_form_handler
     };
 
     httpd_handle_t server = NULL;
@@ -244,6 +210,7 @@ httpd_handle_t start_webserver(void){
         ESP_LOGI("start_webserver", "Registering URI handlers");
         httpd_register_uri_handler(server, &index_uri);
         httpd_register_uri_handler(server, &new_sta_uri);
+        httpd_register_uri_handler(server, &new_sta_form_uri);
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     }
     return server;
