@@ -1,18 +1,18 @@
 idf_component_register(
     SRCS "web_ui.c" "my_wifi.c" "my_err.c" "schedule.c" "train.c" "main.c"
     INCLUDE_DIRS "include/"
-    REQUIRES 
-        spiffs 
-        nvs_flash   
-        esp_driver_gpio 
-        esp_driver_gptimer 
-        sn74hc595 
-        led_matrix 
+    REQUIRES
+        spiffs
+        nvs_flash
+        esp_driver_gpio
+        esp_driver_gptimer
+        sn74hc595
+        led_matrix
         csv_reader
         esp_http_server
         esp_wifi
         my_string
-    EMBED_FILES 
+    EMBED_FILES
         html/index.html
         html/new_sta.html
         html/bye.html

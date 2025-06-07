@@ -35,7 +35,7 @@
 #include "my_err.h"
 #include "web_ui.h"
 
-//#include "wifi_credentials.h"
+// #define USE_WIFI
 
 static gptimer_handle_t timer = NULL;
 
@@ -71,24 +71,26 @@ typedef struct{
 typedef uint64_t matrix_queue_elem_t;
 QueueHandle_t matrix_queue;
 
+// order of path is not the best (should be station -> mid -> station...)
+// if changed, remember to change accordingly functions in train.c and train_to_led here
 const line_t BRIN_BRIGNOLE = {
     .name = "brin_brignole",
     .path = {
         BRIN,
-        DINEGRO,
-        PRINCIPE,
-        DARSENA,
-        SANGIORGIO,
-        SARZANO,
-        DEFERRARI,
-        BRIGNOLE,
         BRIN_DINEGRO,
+        DINEGRO,
         DINEGRO_PRINCIPE,
+        PRINCIPE,
         PRINCIPE_DARSENA,
+        DARSENA,
         DARSENA_SANGIORGIO,
+        SANGIORGIO,
         SANGIORGIO_SARZANO,
+        SARZANO,
         SARZANO_DEFERRARI,
+        DEFERRARI,
         DEFERRARI_BIRGNOLE,
+        BRIGNOLE,
     },
     .stops_num = STOPS_NUM
 };
@@ -96,20 +98,20 @@ const line_t BRIGNOLE_BRIN = {
     .name = "brignole_brin",
     .path = {
         BRIGNOLE,
-        DEFERRARI,
-        SARZANO,
-        SANGIORGIO,
-        DARSENA,
-        PRINCIPE,
-        DINEGRO,
-        BRIN,
         DEFERRARI_BIRGNOLE,
+        DEFERRARI,
         SARZANO_DEFERRARI,
+        SARZANO,
         SANGIORGIO_SARZANO,
+        SANGIORGIO,
         DARSENA_SANGIORGIO,
+        DARSENA,
         PRINCIPE_DARSENA,
+        PRINCIPE,
         DINEGRO_PRINCIPE,
+        DINEGRO,
         BRIN_DINEGRO,
+        BRIN,
     },
     .stops_num = STOPS_NUM
 };
@@ -132,7 +134,7 @@ my_err_t read_schedule(train_t* trains, const char* file){
         int stop_idx;
 
         for(int i = 0; i < STOPS_NUM; ++i){
-            
+
             if(csv_reader_getline(&csv, &line))
                 return PARSER_GETLINE;
 
@@ -150,9 +152,9 @@ my_err_t read_schedule(train_t* trains, const char* file){
                 csv_reader_deinit(&csv);
                 return CSV_WRONG_ORDER;
             }
-            
+
             train_id_check = train_id;
-            
+
             // stop index
             free(token);
             if(csv_reader_getfield(&csv, &line, "stop_sequence", &token) < 0)
@@ -168,7 +170,7 @@ my_err_t read_schedule(train_t* trains, const char* file){
             m = atoi(strtok_r(NULL, ":", &aux));
             s = atoi(strtok_r(NULL, ":", &aux));
             trains[idx].arrival[stop_idx] = (schedule_t){h, m, s};
-            
+
             // departure
             free(token);
             aux = NULL;
@@ -185,7 +187,7 @@ my_err_t read_schedule(train_t* trains, const char* file){
                 return CSV_UNKNOWN_FIELD;
             if(!i)
                 trains[idx].line = !strcmp(token, "MM03") ? &BRIGNOLE_BRIN : &BRIN_BRIGNOLE;
-            
+
             // day
             free(token);
             if(csv_reader_getfield(&csv, &line, "day", &token) < 0)
@@ -196,7 +198,7 @@ my_err_t read_schedule(train_t* trains, const char* file){
                 day = MON_FRI;
             else if(!strcmp(day_str, "Sat"))
                 day = SATURDAY;
-    
+
             trains[idx].id = train_id;
             trains[idx].day = day;
 
@@ -244,7 +246,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
         {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
         {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
         {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
-    
+
         // stations
         {7, 0, 0, BRIN, BRIN},
         {7, 1, 0, DINEGRO, BRIN},
@@ -301,8 +303,10 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
     uint8_t id = train->status.position.perc * len;
     if(len > 0 && id == len)
         --id; // avoid out-of-range index
-    checkpoint_t dest = train->line->path[train->line->stops_num - 1];
+    checkpoint_t dest = train->line->path[2 * train->line->stops_num - 1];
     checkpoint_t pos = train->status.position.checkpoint;
+
+    ESP_LOGI("train_to_led", "id: %"PRIu8" - dest: %d - pos: %d", id, dest, pos);
 
     for(int i = 0; i < sizeof(LEDS) / sizeof(LEDS[0]); ++i){
         if(LEDS[i].dest == dest
@@ -315,12 +319,12 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
 
             return OK;
         }
-    }   
+    }
 
     return CANNOT_CONVERT_TO_LED;
 }
 
-// for limiting current and because of matrix's structure (common anode), 
+// for limiting current and because of matrix's structure (common anode),
 // the matrix is drawn one line at a time
 static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
     static uint8_t row = 0;
@@ -333,7 +337,7 @@ static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *e
     cols = (data >> (8 * row)) & 0xFF;
 
     matrix_draw(1 << row, cols);
-    
+
     if(++row > 7)
         row = 0;
 
@@ -373,7 +377,7 @@ void gpio_init(){
 }
 
 void timer_init(){
-    // ISR led matrix timer config 
+    // ISR led matrix timer config
     gptimer_config_t timer_cfg = {
         .clk_src = GPTIMER_CLK_SRC_DEFAULT,
         .direction = GPTIMER_COUNT_UP,
@@ -425,7 +429,7 @@ my_err_t handle_deepsleep_reset(){
     return ESP_OK;
 }
 
-// ! correctly initialise nvs(?) otherwise it doesnt mount 
+// ! correctly initialise nvs(?) otherwise it doesnt mount
 // ! (now it works only after wifi and sntp set up something (nvs?))
 void spiffs_init(){
     const esp_vfs_spiffs_conf_t spiffs_cfg = {
@@ -484,8 +488,9 @@ void app_main(void){
         },
     };
 
-    nvs_init();
 
+#ifdef USE_WIFI
+    nvs_init();
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
     ESP_ERROR_CHECK(wifi_start());
 
@@ -499,9 +504,9 @@ void app_main(void){
 
         size_t ssid_len = MAX_SSID_LEN;
         size_t pwd_len = MAX_PASSPHRASE_LEN;
-        
+
         web_ui_start();
-    
+
         while(4){
             if(web_ui_wait_for_credentials() == 1){
                 ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
@@ -521,21 +526,23 @@ void app_main(void){
         web_ui_stop();
     }
 
-    gpio_init();
-    timer_init();
-
     // TODO better error handling
     if(get_ntp_clock())
         ESP_LOGE("main", "ERROR NTP");
 
     wifi_stop_and_deinit();
 
+#endif
+
+    gpio_init();
+    timer_init();
     spiffs_init();
+
     my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
     if(err != OK){
         // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %s - errno: %s", strerr(err), strerror(errno));
-        
+
     }
 
     // find first and last train of each day
@@ -553,7 +560,7 @@ void app_main(void){
         case SATURDAY:
             idx = 2;
             break;
-        
+
         default:
             assert(false);
         }
@@ -569,17 +576,17 @@ void app_main(void){
     ESP_ERROR_CHECK(gptimer_start(timer));
 
     while(4){
-        
+
         const time_t now_seconds = time(0);
         struct tm now;
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
-
+#ifndef USE_WIFI
         // set to a preferred time for testing purposes
-        // now_sched = (schedule_t){23, 0, 16};
-        // today = SUNDAY;
-
+        now_sched = (schedule_t){18, 0, 10};
+        today = MON_FRI;
+#endif
         // chneg the current day at 4 when no trains are running
         if(now_sched.hour < 4){
             now_sched.hour += 24;
@@ -595,27 +602,27 @@ void app_main(void){
         for(int i = 0; i < TRAINS_NUM; ++i){
 
             update_train_status(&trains[i], &now_sched, today);
-            
+
             if(trains[i].status.is_active){
 
                 ++active_trains;
 
                 uint8_t row, col, id;
-                my_err_t err;
+                my_err_t err = train_to_led(&trains[i], &row, &col, &id);
                 // convert from checkpoint and percentage to rows and columns of the LED matrix
-                if((err = train_to_led(&trains[i], &row, &col, &id)) == OK)
+                if(err == OK)
                     led_matrix |= ((uint64_t)1 << col) << (8 * row);
                 else
                     ESP_LOGE("main", "%s", strerr(err));
 
-                ESP_LOGI("main", "train [%i] line [%s] now in [%s] @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8, 
+                ESP_LOGI("main", "train [%i] line [%s] now in [%s] @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8,
                     trains[i].id,
                     trains[i].line->name,
-                    checkpoint_str(trains[i].status.position.checkpoint), 
+                    checkpoint_str(trains[i].status.position.checkpoint),
                     100 * trains[i].status.position.perc,
                     row,
                     col,
-                    id               
+                    id
                 );
             }
         }
@@ -647,20 +654,20 @@ void app_main(void){
                 id_first = 0;
                 break;
 
-            default: 
+            default:
                 id_last = 1;
                 id_first = 1;
                 break;
             }
 
             if(schedule_cmp(&now_sched, &last_train[id_last]) == 1)
-                sleep_time_s = schedule_diff(&now_sched, &first_train[id_first]); 
+                sleep_time_s = schedule_diff(&now_sched, &first_train[id_first]);
 
             ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
 
             if(sleep_time_s > 60)
                 esp_deep_sleep(sleep_time_s * 1000000);
-            
+
             if(sleep_time_s >= SLEEP_DEFAULT_S)
                 vTaskDelay(MSEC(sleep_time_s * 1000));
         }
