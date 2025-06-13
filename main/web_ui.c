@@ -31,7 +31,31 @@ extern const char error_html_end[] asm("_binary_error_html_end");
 static EventGroupHandle_t internal_events = NULL;
 static httpd_handle_t server = NULL;
 
-// ! remember to free 'out' when not needed anymore
+// TODO refactor harcoded keys for NVS
+esp_err_t set_credentials(uint8_t* ssid, size_t ssid_len, uint8_t* pwd, size_t pwd_len){
+    esp_err_t err;
+    nvs_handle_t nvs;
+    ESP_ERROR_CHECK(nvs_open("nvs", NVS_READWRITE, &nvs));
+
+    err = nvs_set_blob(nvs, "wifi_ssid", ssid, ssid_len);
+    if(err != ESP_OK){
+        goto FAIL;
+    }
+
+    err = nvs_set_blob(nvs, "wifi_pwd", pwd, pwd_len);
+    if(err != ESP_OK){
+        goto FAIL;
+    }
+
+    return ESP_OK;
+
+FAIL:
+
+    nvs_close(nvs);
+    return err;
+}
+
+// ! remember to free 'ret' when not needed anymore
 static my_string create_error_div(const char* err_msg, size_t err_msg_len){
     const char* error_div = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\"></div>";
 
@@ -62,7 +86,7 @@ static esp_err_t new_sta_handler(httpd_req_t *req){
 // return the lengh of the string which contains the new div
 static size_t add_error_div(my_string* page, const char* error_msg, size_t error_len){
     my_string error_div = create_error_div(error_msg, error_len);
-    
+
     int at = my_string_strstr(page, "<body>") + strlen("<body>"); // points to the end of <body> inside index
     my_string_insert_at(page, at, &error_div);
 
@@ -84,12 +108,12 @@ static int index_handler(httpd_req_t *req){
 
     esp_err_t credentials_status = web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len);
     if(credentials_status != ESP_OK){
-        ESP_LOGE("index_handler", "no NVS available");
-        
-        // disable button for using saved WiFi    
+        ESP_LOGE("index_handler", "Credentials are unavailable , try using a new WiFi network");
+
+        // disable button for using saved WiFi
         int at = my_string_strstr(&resp, "></button>");
         assert(at >= 0);
-        my_string_insert_array_at(&resp, at, "disabled", 8);   
+        my_string_insert_array_at(&resp, at, "disabled", 8);
     }
 
     int at = my_string_strstr(&resp, "</button>");
@@ -103,14 +127,14 @@ static int index_handler(httpd_req_t *req){
 
         err = send_html_page(req, resp.data, resp.len);
         my_string_delete(&resp);
-        
+
         return err;
     }
 
     ESP_LOGI("root_get_handler", "QUERY: '%s'", query);
 
     // bad requets (GET values) - responding with index.html + an error message in the page
-    if(httpd_query_key_value(query, INDEX_QUERY_KEY, &value[0], INDEX_QUERY_VALUE_LEN_MAX) != ESP_OK || 
+    if(httpd_query_key_value(query, INDEX_QUERY_KEY, &value[0], INDEX_QUERY_VALUE_LEN_MAX) != ESP_OK ||
         (strcmp(value, "NVS") && strcmp(value, "NEW"))
     ){
         const char* error_msg = "Bad request";
@@ -123,9 +147,9 @@ static int index_handler(httpd_req_t *req){
     }
 
     if(strncmp(value, "NVS", 4) == 0){
-        
+
         if(credentials_status != ESP_OK){
-            const char* error_msg = "Unavailable credentials, try using a new WiFi network";
+            const char* error_msg = "Credentials are unavailable , try using a new WiFi network";
 
             add_error_div(&resp, error_msg, strlen(error_msg));
             err = send_html_page(req, resp.data, resp.len);
@@ -135,7 +159,7 @@ static int index_handler(httpd_req_t *req){
         }
 
         err = send_html_page(req, exit_html_start, exit_html_end - exit_html_start);
-        
+
         xEventGroupSetBits(internal_events, CREDENTIALS_READY);
         my_string_delete(&resp);
         return err;
@@ -168,14 +192,43 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
 }
 
 static esp_err_t new_sta_form_handler(httpd_req_t* req){
+    const char* err_msg = "Bad values, try again!";
     char query[300] = {0};
-    ESP_LOGI("new_sta_form_handler", "here");
+    char ssid[MAX_SSID_LEN] = {0};
+    char pwd[MAX_PASSPHRASE_LEN] = {0};
+
+    my_string err_div = create_error_div(err_msg, strlen(err_msg));
+
+    my_string resp;
+
 
     assert(httpd_req_recv(req, &query[0], 300) > 0);
 
-    printf("'%s'", query);
-    
-    return send_new_sta_page(req);
+    ESP_LOGI("new_sta_form_handler", "'%s'", query);
+
+    if(httpd_query_key_value(query, "ssid", &ssid[0], MAX_SSID_LEN) != ESP_OK ||
+        httpd_query_key_value(query, "password", &pwd[0], MAX_PASSPHRASE_LEN) != ESP_OK
+    ){
+        my_string_init_from_array(&resp, new_sta_start, new_sta_end - new_sta_start);
+        my_string_insert_at(&resp, my_string_strstr(&resp, "<form>"), &err_div);
+        goto FAIL;
+    }
+
+    // TODO check if ssid is one of the available networks
+
+
+    assert(set_credentials((uint8_t*)&ssid[0], MAX_SSID_LEN, (uint8_t*)&pwd[0], MAX_PASSPHRASE_LEN) == ESP_OK);
+
+    my_string_init_from_array(&resp, exit_html_start, exit_html_end - exit_html_start);
+
+    xEventGroupSetBits(internal_events, CREDENTIALS_READY);
+
+FAIL:
+    esp_err_t ret = send_html_page(req, resp.data, resp.len);
+    my_string_delete(&err_div);
+    my_string_delete(&resp);
+
+    return ret;
 }
 
 httpd_handle_t start_webserver(void){
@@ -230,7 +283,7 @@ void web_ui_stop(){
         httpd_stop(server);
 
     server = NULL;
-    
+
     vEventGroupDelete(internal_events);
 }
 
@@ -243,12 +296,13 @@ int web_ui_wait_for_credentials(){
     return 0;
 }
 
+// TODO refactor harcoded keys for NVS
 // in case of failure, ssid will contain "No WiFi network saved" while pwd will be empty.
 // ssid_len and pwd_len are always set accordingly
 esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, size_t* pwd_len){
     esp_err_t err;
     nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open("nvs", NVS_READWRITE, &nvs));
+    ESP_ERROR_CHECK(nvs_open("nvs", NVS_READONLY, &nvs));
 
     err = nvs_get_blob(nvs, "wifi_ssid", ssid, ssid_len);
     if(err != ESP_OK){
@@ -272,3 +326,4 @@ FAIL:
     nvs_close(nvs);
     return err;
 }
+

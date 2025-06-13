@@ -35,7 +35,7 @@
 #include "my_err.h"
 #include "web_ui.h"
 
-// #define USE_WIFI
+#define USE_WIFI
 
 static gptimer_handle_t timer = NULL;
 
@@ -71,8 +71,6 @@ typedef struct{
 typedef uint64_t matrix_queue_elem_t;
 QueueHandle_t matrix_queue;
 
-// order of path is not the best (should be station -> mid -> station...)
-// if changed, remember to change accordingly functions in train.c and train_to_led here
 const line_t BRIN_BRIGNOLE = {
     .name = "brin_brignole",
     .path = {
@@ -429,8 +427,8 @@ my_err_t handle_deepsleep_reset(){
     return ESP_OK;
 }
 
-// ! correctly initialise nvs(?) otherwise it doesnt mount
-// ! (now it works only after wifi and sntp set up something (nvs?))
+// ! correctly initialise nvs(?) before this, otherwise it doesnt mount the partition
+// ! (it works only after wifi and sntp set up something (nvs?))
 void spiffs_init(){
     const esp_vfs_spiffs_conf_t spiffs_cfg = {
         .base_path = "/spiffs_root",
@@ -468,7 +466,7 @@ void app_main(void){
     };
     schedule_t last_train[3] = {0};
 
-    wifi_config_t ap_cfg = {
+    const wifi_config_t ap_cfg = {
         .ap = {
             .ssid = "esp32",
             .ssid_len = strlen("esp32"),
@@ -508,12 +506,13 @@ void app_main(void){
         web_ui_start();
 
         while(4){
-            if(web_ui_wait_for_credentials() == 1){
+            if(web_ui_wait_for_credentials() != 0){
                 ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
                 assert(false);
             }
 
-            web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len);
+            if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK)
+                ESP_LOGI("main", "error while retrieving credentials");
 
             // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
@@ -582,6 +581,7 @@ void app_main(void){
         localtime_r(&now_seconds, &now);
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
+
 #ifndef USE_WIFI
         // set to a preferred time for testing purposes
         now_sched = (schedule_t){18, 0, 10};
