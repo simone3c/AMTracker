@@ -6,7 +6,7 @@
 #define WIFI_SUCCESS 1
 #define WIFI_FAILURE 2
 #define WIFI_STA_RUNNING 3
-#define MAX_FAILURES 10
+#define MAX_FAILURES 5
 
 typedef struct sockaddr sockaddr;
 typedef struct sockaddr_in sockaddr_in;

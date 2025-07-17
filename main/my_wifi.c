@@ -230,7 +230,7 @@ my_err_t wait_sta_connection(){
 
     EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
         WIFI_CONNECTED | WIFI_FAILURE,
-        pdFALSE,
+        pdTRUE,
         pdFALSE,
         portMAX_DELAY
     );
@@ -244,7 +244,7 @@ my_err_t wait_sta_connection(){
         ESP_LOGE("wait_sta_connection", "UNEXPECTED EVENT");
         status = UNKNOW_ERR;
     }
-
+    sta_connection_retry_num = 0;
     return status;
 }
 

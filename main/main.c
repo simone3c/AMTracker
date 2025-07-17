@@ -114,6 +114,15 @@ const line_t BRIGNOLE_BRIN = {
     .stops_num = STOPS_NUM
 };
 
+static wifi_config_t sta_cfg = {
+    .sta = {
+        .ssid = {0},
+        .password = {0},
+        .threshold.authmode = WIFI_AUTH_OPEN,
+        .pmf_cfg.required = false, // security feature
+    },
+};
+
 // assumes that lines relative to the same train come back-to-back
 my_err_t read_schedule(train_t* trains, const char* file){
 
@@ -405,17 +414,8 @@ my_err_t handle_deepsleep_reset(){
     size_t ssid_len = 32;
     size_t pwd_len = 64;
 
-    wifi_config_t sta_cfg = {
-        .sta = {
-            .ssid = {0},
-            .password = {0},
-	        .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-            .pmf_cfg.required = false, // security feature
-        },
-    };
-
     ESP_ERROR_CHECK(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len));
-    if(sta_cfg.sta.ssid[0] == 0){
+    if(sta_cfg.sta.password[0] == 0){
         return NO_CREDENTIALS_AVAILABLE;
     }
 
@@ -448,6 +448,37 @@ void nvs_init(){
     ESP_ERROR_CHECK(ret);
 }
 
+void web_ui_run(){
+    size_t ssid_len = MAX_SSID_LEN;
+        size_t pwd_len = MAX_PASSPHRASE_LEN;
+
+    web_ui_start();
+
+    while(4){
+        if(web_ui_wait_for_credentials() != 0){
+            ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
+            assert(false);
+        }
+
+        if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK)
+            ESP_LOGI("main", "error while retrieving credentials");
+
+        // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+
+        if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK){ // connection established
+            web_ui_notify_connection_established();
+            break;
+        }
+
+        ESP_LOGI("main", "wrong credentials");
+        // communicate with webui to ask credentials again
+        web_ui_notify_connection_failed();
+
+    }
+
+    web_ui_stop();
+}
+
 void app_main(void){
 
     static train_t trains[TRAINS_NUM] = {0};
@@ -477,16 +508,6 @@ void app_main(void){
         },
     };
 
-    wifi_config_t sta_cfg = {
-        .sta = {
-            .ssid = {0},
-            .password = {0},
-	        .threshold.authmode = WIFI_AUTH_OPEN,
-            .pmf_cfg.required = false, // security feature
-        },
-    };
-
-
 #ifdef USE_WIFI
     nvs_init();
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
@@ -499,30 +520,13 @@ void app_main(void){
     }
 
     if(cred_status == NO_CREDENTIALS_AVAILABLE){
-
-        size_t ssid_len = MAX_SSID_LEN;
-        size_t pwd_len = MAX_PASSPHRASE_LEN;
-
-        web_ui_start();
-
-        while(4){
-            if(web_ui_wait_for_credentials() != 0){
-                ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
-                assert(false);
-            }
-
-            if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK)
-                ESP_LOGI("main", "error while retrieving credentials");
-
-            // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-
-            if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK) // connection established
-                break;
-
+        web_ui_run();
+    }
+    else{
+        if(wifi_apsta_connect_to(&sta_cfg) != ESP_OK){
             ESP_LOGI("main", "wrong credentials");
+            web_ui_run();
         }
-
-        web_ui_stop();
     }
 
     // TODO better error handling
