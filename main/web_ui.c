@@ -38,8 +38,38 @@ static esp_err_t send_html_page(httpd_req_t* req, const char* html, size_t len){
     return httpd_resp_send(req, html, len);
 }
 
+// ! too much memory used
 static esp_err_t send_new_sta_page(httpd_req_t* req){
-    return send_html_page(req, new_sta_start, new_sta_end - new_sta_start);
+    char opt_line[128] = {0};
+    my_string resp, opt_line_str;
+    my_string_init_from_array(&resp, new_sta_start, new_sta_end - new_sta_start);
+
+    wifi_ap_record_t aps[16];
+    uint16_t ap_count = 16;
+    ESP_LOGE("send_new_sta_page", "'%s' -- %i", resp.data, resp.len);
+
+    assert(wifi_scan(&aps[0], &ap_count) == 0);
+
+    ESP_LOGE("send_new_sta_page", "qui");
+/*
+    for(int i = 0; i < ap_count; ++i){
+        snprintf(opt_line, 127, "<option value=\"%s\">%s</option>\n", aps[i].ssid, aps[i].ssid);
+        my_string_init_from_array(&opt_line_str, opt_line, strlen(opt_line));
+
+        int at = my_string_strstr(&resp, "</select>");
+        assert(at > 0);
+        my_string_insert_at(&resp, at, &opt_line_str);
+
+        my_string_delete(&opt_line_str);           
+
+    }
+*/
+
+    esp_err_t ret = send_html_page(req, resp.data, resp.len);
+    
+    my_string_delete(&resp);
+
+    return ret;
 }
 
 static esp_err_t send_exit_page(httpd_req_t* req){

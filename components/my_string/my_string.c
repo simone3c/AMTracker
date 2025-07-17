@@ -23,7 +23,7 @@ void my_string_delete(my_string* s){
 
 size_t my_string_init_from_array(my_string* s, const char* from, size_t from_len){
     my_string_init(s);
-    buffer_resize(s, 2 * from_len);
+    buffer_resize(s, from_len + from_len / 2);
     s->len = from_len;
     memcpy(s->data, from, s->len);
     s->data[s->len] = 0;
@@ -56,7 +56,7 @@ size_t my_string_insert_array_at(my_string* s, int at, const char* substring, si
   
     size_t new_len = s->len + sub_len;
     if(new_len >= s->cap){
-        buffer_resize(s, 2 * new_len);
+        buffer_resize(s, new_len + new_len / 2);
     }
 
     for(int i = new_len - 1; i >= at; --i){
