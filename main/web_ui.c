@@ -17,6 +17,10 @@
 #define CONNECTION_ESTABLISHED BIT1
 #define CONNECTION_FAILED BIT2
 
+// keys for searching NVS for wifi credentials
+#define NVS_SSID_KEY "wifi_ssid"
+#define NVS_PASSWORD_KEY "wifi_pwd"
+
 // index.html
 extern const char index_start[] asm("_binary_index_html_start");
 extern const char index_end[] asm("_binary_index_html_end");
@@ -24,8 +28,8 @@ extern const char index_end[] asm("_binary_index_html_end");
 extern const char new_sta_start[] asm("_binary_new_sta_html_start");
 extern const char new_sta_end[] asm("_binary_new_sta_html_end");
 // exit.html
-extern const char exit_html_start[] asm("_binary_bye_html_start");
-extern const char exit_html_end[] asm("_binary_bye_html_end");
+extern const char exit_html_start[] asm("_binary_exit_html_start");
+extern const char exit_html_end[] asm("_binary_exit_html_end");
 // error.html
 extern const char error_html_start[] asm("_binary_error_html_start");
 extern const char error_html_end[] asm("_binary_error_html_end");
@@ -36,40 +40,6 @@ static httpd_handle_t server = NULL;
 static esp_err_t send_html_page(httpd_req_t* req, const char* html, size_t len){
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, len);
-}
-
-// ! too much memory used
-static esp_err_t send_new_sta_page(httpd_req_t* req){
-    char opt_line[128] = {0};
-    my_string resp, opt_line_str;
-    my_string_init_from_array(&resp, new_sta_start, new_sta_end - new_sta_start);
-
-    wifi_ap_record_t aps[16];
-    uint16_t ap_count = 16;
-    ESP_LOGE("send_new_sta_page", "'%s' -- %i", resp.data, resp.len);
-
-    assert(wifi_scan(&aps[0], &ap_count) == 0);
-
-    ESP_LOGE("send_new_sta_page", "qui");
-/*
-    for(int i = 0; i < ap_count; ++i){
-        snprintf(opt_line, 127, "<option value=\"%s\">%s</option>\n", aps[i].ssid, aps[i].ssid);
-        my_string_init_from_array(&opt_line_str, opt_line, strlen(opt_line));
-
-        int at = my_string_strstr(&resp, "</select>");
-        assert(at > 0);
-        my_string_insert_at(&resp, at, &opt_line_str);
-
-        my_string_delete(&opt_line_str);           
-
-    }
-*/
-
-    esp_err_t ret = send_html_page(req, resp.data, resp.len);
-    
-    my_string_delete(&resp);
-
-    return ret;
 }
 
 static esp_err_t send_exit_page(httpd_req_t* req){
@@ -102,18 +72,17 @@ static size_t add_error_div(my_string* page, const char* error_msg, size_t error
     return page->len;
 }
 
-// TODO refactor harcoded keys for NVS
 esp_err_t set_credentials(uint8_t* ssid, size_t ssid_len, uint8_t* pwd, size_t pwd_len){
     esp_err_t err;
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open("nvs", NVS_READWRITE, &nvs));
 
-    err = nvs_set_blob(nvs, "wifi_ssid", ssid, ssid_len);
+    err = nvs_set_blob(nvs, NVS_SSID_KEY, ssid, ssid_len);
     if(err != ESP_OK){
         goto FAIL;
     }
 
-    err = nvs_set_blob(nvs, "wifi_pwd", pwd, pwd_len);
+    err = nvs_set_blob(nvs, NVS_PASSWORD_KEY, pwd, pwd_len);
     if(err != ESP_OK){
         goto FAIL;
     }
@@ -128,7 +97,10 @@ FAIL:
     return err;
 }
 
-// TODO
+static esp_err_t send_new_sta_page(httpd_req_t *req){
+    return send_html_page(req, new_sta_start, new_sta_end - new_sta_start);
+}
+
 static esp_err_t new_sta_handler(httpd_req_t *req){
     return send_new_sta_page(req);
 }
@@ -274,8 +246,11 @@ static esp_err_t new_sta_form_handler(httpd_req_t* req){
         goto FAIL;
     }
 
-    // TODO check if ssid is one of the available networks
-
+    char* space_pos = strchr(new_ssid, '+');
+    while(space_pos != NULL){
+        *space_pos = ' '; // replace + with a space
+        space_pos = strchr(space_pos, '+');
+    }
 
     ESP_ERROR_CHECK(set_credentials((uint8_t*)&new_ssid[0], MAX_SSID_LEN, (uint8_t*)&new_pwd[0], MAX_PASSPHRASE_LEN));
 
@@ -362,7 +337,6 @@ int web_ui_wait_for_credentials(){
     return 0;
 }
 
-// TODO refactor harcoded keys for NVS
 // in case of failure, ssid will contain "No WiFi network saved" while pwd will be empty.
 // ssid_len and pwd_len are always set accordingly
 esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, size_t* pwd_len){
@@ -370,12 +344,12 @@ esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, 
     nvs_handle_t nvs;
     ESP_ERROR_CHECK(nvs_open("nvs", NVS_READONLY, &nvs));
 
-    err = nvs_get_blob(nvs, "wifi_ssid", ssid, ssid_len);
+    err = nvs_get_blob(nvs, NVS_SSID_KEY, ssid, ssid_len);
     if(err != ESP_OK){
         goto FAIL;
     }
 
-    err = nvs_get_blob(nvs, "wifi_pwd", pwd, pwd_len);
+    err = nvs_get_blob(nvs, NVS_PASSWORD_KEY, pwd, pwd_len);
     if(err != ESP_OK){
         goto FAIL;
     }
@@ -397,7 +371,7 @@ FAIL:
 }
 
 esp_err_t web_ui_notify_connection_established(){
-    //send_html_page()
+    xEventGroupSetBits(internal_events, CONNECTION_ESTABLISHED);
     return 0;
 }
 

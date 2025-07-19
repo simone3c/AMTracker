@@ -309,16 +309,3 @@ esp_err_t wifi_apsta_connect_to(wifi_config_t* sta_cfg){
 
     return wait_sta_connection();
 }
-
-int wifi_scan(wifi_ap_record_t* ap_info, uint16_t* ap_count){
-
-    ESP_LOGE("wifi_scan", "here");
-
-    if(esp_wifi_scan_start(NULL, true) != ESP_OK)
-        return 1;
-    if(esp_wifi_scan_get_ap_num(ap_count) != ESP_OK)
-        return 2;
-    if(esp_wifi_scan_get_ap_records(ap_count, ap_info) != ESP_OK)
-        return 3;
-    return 0;
-}

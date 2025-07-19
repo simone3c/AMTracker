@@ -15,7 +15,7 @@ idf_component_register(
     EMBED_FILES
         html/index.html
         html/new_sta.html
-        html/bye.html
+        html/exit.html
 )
 
 # Create a SPIFFS image from the contents of the 'spiffs_root' directory

@@ -409,7 +409,7 @@ void timer_init(){
 }
 
 // ! TEST
-my_err_t handle_deepsleep_reset(){
+my_err_t try_wifi_connection_after_reset(){
 
     size_t ssid_len = 32;
     size_t pwd_len = 64;
@@ -421,7 +421,9 @@ my_err_t handle_deepsleep_reset(){
 
     if(wifi_apsta_connect_to(&sta_cfg) != ESP_OK){
         wifi_stop_and_deinit();
-        esp_deep_sleep(60 * 10 * 1000000); // sleep 10 min
+        if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
+            esp_deep_sleep(60 * 1000000); // sleep 1 min
+        }
     }
 
     return ESP_OK;
@@ -467,6 +469,7 @@ void web_ui_run(){
 
         if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK){ // connection established
             web_ui_notify_connection_established();
+            vTaskDelay(MSEC(1500));
             break;
         }
 
@@ -516,7 +519,7 @@ void app_main(void){
     my_err_t cred_status = NO_CREDENTIALS_AVAILABLE;
 
     if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
-        cred_status = handle_deepsleep_reset();
+        cred_status = try_wifi_connection_after_reset();
     }
 
     if(cred_status == NO_CREDENTIALS_AVAILABLE){

@@ -24,6 +24,5 @@ esp_err_t wifi_start();
 void wifi_stop();
 void wifi_stop_and_deinit();
 esp_err_t wifi_apsta_connect_to(wifi_config_t* sta_cfg);
-esp_err_t wifi_scan(wifi_ap_record_t* ap_info, uint16_t* ap_count);
 
 #endif
