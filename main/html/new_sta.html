@@ -2,15 +2,32 @@
 <html>
 <head>
     <title>WiFi Configuration</title>
+    <style>
+        form {
+            display: flex;
+            flex-direction: column;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+
+        label, input {
+            margin-bottom: 10px;
+        }
+
+        input[type="submit"] {
+            margin-top: 15px;
+        }
+    </style>
 </head>
 <body>
     <h2>WiFi Configuration Form</h2>
     <form method="post" action="/new_sta_form">
-        <label for="ssid">ssid:</label>
+        <label for="ssid">SSID:</label>
         <input type="text" id="ssid" name="ssid" required>
 
         <label for="password">Password:</label>
         <input type="password" id="password" name="password" required>
+
         <input type="submit" value="Connect">
     </form>
 </body>

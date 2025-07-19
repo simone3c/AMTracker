@@ -7,20 +7,22 @@
         form {
             display: flex;
             flex-direction: column;
-            gap: 10px; /* spacing between buttons */
-            margin: 0 auto; /* optional: center the form */
+            gap: 10px;
+            margin: 0 auto;
         }
         button {
             width: 100%;
             padding: 10px;
             font-size: 24px;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <h1>AMTracker Config</h1>
     <form method="get" action="/index">
-        <button type="submit" name="method" value="NVS">Use saved Wi-Fi network: </button>
+        <button type="submit" name="method" value="NVS">
+            Use saved Wi-Fi network:<br></button>
         <button type="submit" name="method" value="NEW">New Wi-Fi network</button>
     </form>
 </body>

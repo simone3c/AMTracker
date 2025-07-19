@@ -30,9 +30,6 @@ extern const char new_sta_end[] asm("_binary_new_sta_html_end");
 // exit.html
 extern const char exit_html_start[] asm("_binary_exit_html_start");
 extern const char exit_html_end[] asm("_binary_exit_html_end");
-// error.html
-extern const char error_html_start[] asm("_binary_error_html_start");
-extern const char error_html_end[] asm("_binary_error_html_end");
 
 static EventGroupHandle_t internal_events = NULL;
 static httpd_handle_t server = NULL;
