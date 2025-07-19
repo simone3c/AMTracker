@@ -409,7 +409,7 @@ void timer_init(){
 }
 
 // ! TEST
-my_err_t try_wifi_connection_after_reset(){
+my_err_t check_wifi_credentials(){
 
     size_t ssid_len = 32;
     size_t pwd_len = 64;
@@ -419,11 +419,8 @@ my_err_t try_wifi_connection_after_reset(){
         return NO_CREDENTIALS_AVAILABLE;
     }
 
-    if(wifi_apsta_connect_to(&sta_cfg) != ESP_OK){
-        wifi_stop_and_deinit();
-        if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
-            esp_deep_sleep(60 * 1000000); // sleep 1 min
-        }
+    if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
+        esp_deep_sleep(60 * 1000000); // sleep 1 min
     }
 
     return ESP_OK;
@@ -452,7 +449,7 @@ void nvs_init(){
 
 void web_ui_run(){
     size_t ssid_len = MAX_SSID_LEN;
-        size_t pwd_len = MAX_PASSPHRASE_LEN;
+    size_t pwd_len = MAX_PASSPHRASE_LEN;
 
     web_ui_start();
 
@@ -462,8 +459,9 @@ void web_ui_run(){
             assert(false);
         }
 
-        if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK)
+        if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK){
             ESP_LOGI("main", "error while retrieving credentials");
+        }
 
         // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
 
@@ -487,6 +485,10 @@ void app_main(void){
     static train_t trains[TRAINS_NUM] = {0};
 
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
+
+    gpio_init();
+    timer_init();
+    spiffs_init();
 
     // first train of each period
     // [0] is SUNDAY
@@ -515,14 +517,8 @@ void app_main(void){
     nvs_init();
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
     ESP_ERROR_CHECK(wifi_start());
-
-    my_err_t cred_status = NO_CREDENTIALS_AVAILABLE;
-
-    if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
-        cred_status = try_wifi_connection_after_reset();
-    }
-
-    if(cred_status == NO_CREDENTIALS_AVAILABLE){
+    
+    if(check_wifi_credentials() == NO_CREDENTIALS_AVAILABLE){
         web_ui_run();
     }
     else{
@@ -539,10 +535,6 @@ void app_main(void){
     wifi_stop_and_deinit();
 
 #endif
-
-    gpio_init();
-    timer_init();
-    spiffs_init();
 
     my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
     if(err != OK){
