@@ -21,6 +21,11 @@
 #define NVS_SSID_KEY "wifi_ssid"
 #define NVS_PASSWORD_KEY "wifi_pwd"
 
+#define GET_VALUE_NVS "NVS"
+#define GET_VALUE_NEW_STA "NEW"
+
+#define NEW_STA_FORM_QUERY_MAX_LEN (2 * (MAX_PASSPHRASE_LEN + MAX_SSID_LEN))
+
 // index.html
 extern const char index_start[] asm("_binary_index_html_start");
 extern const char index_end[] asm("_binary_index_html_end");
@@ -43,6 +48,43 @@ static esp_err_t send_exit_page(httpd_req_t* req){
     return send_html_page(req, exit_html_start, exit_html_end - exit_html_start);
 }
 
+static esp_err_t send_new_sta_page(httpd_req_t *req){
+    return send_html_page(req, new_sta_start, new_sta_end - new_sta_start);
+}
+
+// Fills index.html and returns it
+// ! remember to free resp after using it
+static my_string index_page_create(){
+    size_t ssid_len = MAX_SSID_LEN;
+    size_t pwd_len = MAX_PASSPHRASE_LEN;
+    uint8_t ssid[MAX_SSID_LEN] = {0};
+    uint8_t pwd[MAX_PASSPHRASE_LEN] = {0};
+
+    my_string resp;
+    my_string_init_from_array(&resp, index_start, index_end - index_start);
+
+    esp_err_t credentials_status = web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len);
+    if(credentials_status != ESP_OK){
+        ESP_LOGI("index_page_create", "Credentials are unavailable, button is going to be disabled");
+
+        // disable button for using saved WiFi
+        int at = my_string_strstr(&resp, "value=\"NVS\"");
+        assert(at >= 0);
+        const char* disabled = "disabled ";
+        my_string_insert_array_at(&resp, at, disabled, strlen(disabled));
+
+        const char* msg = "No saved network";
+        ssid_len = strlen(msg);
+        strcpy((char*)ssid, msg);
+    }
+
+    int at = my_string_strstr(&resp, "</button>");
+    assert(at >= 0);
+    my_string_insert_array_at(&resp, at, (const char*)ssid, ssid_len);
+
+    return resp;
+}
+
 // ! remember to free 'ret' when not needed anymore
 static my_string create_error_div(const char* err_msg, size_t err_msg_len){
     const char* error_div = "<div style=\"background-color: #f8d7da; color: #721c24; text-align: center;\"></div>";
@@ -61,12 +103,46 @@ static my_string create_error_div(const char* err_msg, size_t err_msg_len){
 static size_t add_error_div(my_string* page, const char* error_msg, size_t error_len){
     my_string error_div = create_error_div(error_msg, error_len);
 
-    int at = my_string_strstr(page, "<body>") + strlen("<body>"); // points to the end of <body> inside index
+    // points to the end of '<body>' tag to insert the error div at the top of the page
+    int at = my_string_strstr(page, "<body>") + strlen("<body>"); 
     my_string_insert_at(page, at, &error_div);
 
     my_string_delete(&error_div);
 
     return page->len;
+}
+
+// in case of failure, ssid_len and pwd_len will be set to 0
+esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, size_t* pwd_len){
+    esp_err_t err;
+    nvs_handle_t nvs;
+
+    err = nvs_open("nvs", NVS_READONLY, &nvs);
+    if(err != ESP_OK){
+        goto FAIL;
+    }
+
+    err = nvs_get_blob(nvs, NVS_SSID_KEY, ssid, ssid_len);
+    if(err != ESP_OK){
+        goto FAIL;
+    }
+
+    err = nvs_get_blob(nvs, NVS_PASSWORD_KEY, pwd, pwd_len);
+    if(err != ESP_OK){
+        goto FAIL;
+    }
+
+    ESP_LOGI("get_credentials", "Credentials have been read: SSID [%s] PWD [%s]", (char*)ssid, (char*)pwd);
+
+
+    return ESP_OK;
+
+FAIL:
+
+    *ssid_len = 0;
+    *pwd_len = 0;
+    nvs_close(nvs);
+    return err;
 }
 
 esp_err_t set_credentials(uint8_t* ssid, size_t ssid_len, uint8_t* pwd, size_t pwd_len){
@@ -89,46 +165,15 @@ esp_err_t set_credentials(uint8_t* ssid, size_t ssid_len, uint8_t* pwd, size_t p
     return ESP_OK;
 
 FAIL:
-
     nvs_close(nvs);
     return err;
-}
-
-static esp_err_t send_new_sta_page(httpd_req_t *req){
-    return send_html_page(req, new_sta_start, new_sta_end - new_sta_start);
 }
 
 static esp_err_t new_sta_handler(httpd_req_t *req){
     return send_new_sta_page(req);
 }
 
-static my_string index_page_create(){
-    size_t ssid_len = MAX_SSID_LEN;
-    size_t pwd_len = MAX_PASSPHRASE_LEN;
-    uint8_t ssid[MAX_SSID_LEN] = {0};
-    uint8_t pwd[MAX_PASSPHRASE_LEN] = {0};
-
-    my_string resp;
-    my_string_init_from_array(&resp, index_start, index_end - index_start);
-
-    esp_err_t credentials_status = web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len);
-    if(credentials_status != ESP_OK){
-        ESP_LOGE("index_handler", "Credentials are unavailable , try using a new WiFi network");
-
-        // disable button for using saved WiFi
-        int at = my_string_strstr(&resp, "></button>");
-        assert(at >= 0);
-        my_string_insert_array_at(&resp, at, "disabled", 8);
-    }
-
-    int at = my_string_strstr(&resp, "</button>");
-    assert(at >= 0);
-    my_string_insert_array_at(&resp, at, (const char*)ssid, ssid_len);
-
-    return resp;
-}
-
-static int index_handler(httpd_req_t *req){
+static esp_err_t index_handler(httpd_req_t *req){
     esp_err_t err = ESP_OK;
 
     my_string resp = index_page_create();
@@ -144,11 +189,9 @@ static int index_handler(httpd_req_t *req){
         return err;
     }
 
-    ESP_LOGI("root_get_handler", "QUERY: '%s'", query);
-
     // bad requets (GET values) - responding with index.html + an error message in the page
     if(httpd_query_key_value(query, INDEX_QUERY_KEY, &value[0], INDEX_QUERY_VALUE_LEN_MAX) != ESP_OK ||
-        (strcmp(value, "NVS") && strcmp(value, "NEW"))
+        (strcmp(value, GET_VALUE_NVS) && strcmp(value, GET_VALUE_NEW_STA))
     ){
         const char* error_msg = "Bad request";
 
@@ -159,7 +202,7 @@ static int index_handler(httpd_req_t *req){
         return err;
     }
 
-    if(strncmp(value, "NVS", 4) == 0){
+    if(strcmp(value, GET_VALUE_NVS) == 0){
         size_t ssid_len = MAX_SSID_LEN;
         size_t pwd_len = MAX_PASSPHRASE_LEN;
         uint8_t ssid[MAX_SSID_LEN] = {0};
@@ -167,8 +210,7 @@ static int index_handler(httpd_req_t *req){
         esp_err_t credentials_status = web_ui_get_credentials(&ssid[0], &ssid_len, &pwd[0], &pwd_len);
 
         if(credentials_status != ESP_OK){
-            const char* error_msg = "Credentials are unavailable , try using a new WiFi network";
-
+            const char* error_msg = "Credentials are unavailable, try using a new WiFi network";
             add_error_div(&resp, error_msg, strlen(error_msg));
             err = send_html_page(req, resp.data, resp.len);
             my_string_delete(&resp);
@@ -186,11 +228,12 @@ static int index_handler(httpd_req_t *req){
             portMAX_DELAY
         );
         if(bits & CONNECTION_ESTABLISHED){
-            send_exit_page(req);
+            err = send_exit_page(req);
         }
         else{
-            add_error_div(&resp, "Connection Failed, try using different credentials", 51);
-            send_html_page(req, resp.data, resp.len);
+            const char* msg = "Connection Failed, try using different credentials";
+            add_error_div(&resp, msg, strlen(msg));
+            err = send_html_page(req, resp.data, resp.len);
         }
 
         my_string_delete(&resp);
@@ -201,13 +244,13 @@ static int index_handler(httpd_req_t *req){
     return send_new_sta_page(req);
 }
 
-// HTTP Error (404) Handler - Redirects all requests to the root page
 esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
     char content[100] = {0};
+    ESP_LOGE("http_404_error_handler", "Cannot find '%s'", content);
+
     httpd_req_get_url_query_str(req, content, 100);
     httpd_resp_set_status(req, "404 Not Found");
     httpd_resp_send(req, "file not found", HTTPD_RESP_USE_STRLEN);
-    ESP_LOGE("http_404_error_handler", "Cannot find '%s'", content);
 
     return ESP_OK;
 
@@ -225,15 +268,14 @@ esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err){
 
 static esp_err_t new_sta_form_handler(httpd_req_t* req){
     const char* err_msg = "Bad values, try again!";
-    char query[300] = {0};
+    char query[NEW_STA_FORM_QUERY_MAX_LEN] = {0};
     char new_ssid[MAX_SSID_LEN] = {0};
     char new_pwd[MAX_PASSPHRASE_LEN] = {0};
 
     my_string resp;
+    esp_err_t ret = ESP_OK;
 
-    assert(httpd_req_recv(req, &query[0], 300) > 0);
-
-    ESP_LOGI("new_sta_form_handler", "'%s'", query);
+    assert(httpd_req_recv(req, &query[0], NEW_STA_FORM_QUERY_MAX_LEN) > 0);
 
     if(httpd_query_key_value(query, "ssid", &new_ssid[0], MAX_SSID_LEN) != ESP_OK ||
         httpd_query_key_value(query, "password", &new_pwd[0], MAX_PASSPHRASE_LEN) != ESP_OK
@@ -255,7 +297,7 @@ static esp_err_t new_sta_form_handler(httpd_req_t* req){
 
     EventBits_t bits = xEventGroupWaitBits(internal_events, CONNECTION_ESTABLISHED | CONNECTION_FAILED, pdTRUE, pdFALSE, portMAX_DELAY);
     if(bits & CONNECTION_ESTABLISHED){
-        send_exit_page(req);
+        ret = send_exit_page(req);
     }
     else{
         resp = index_page_create();
@@ -263,7 +305,7 @@ static esp_err_t new_sta_form_handler(httpd_req_t* req){
     }
 
 FAIL:
-    esp_err_t ret = send_html_page(req, resp.data, resp.len);
+    ret = send_html_page(req, resp.data, resp.len);
     my_string_delete(&resp);
 
     return ret;
@@ -307,72 +349,41 @@ httpd_handle_t start_webserver(void){
     return server;
 }
 
-int web_ui_start(){
+my_err_t web_ui_start(){
     internal_events = xEventGroupCreate();
     if(internal_events == NULL)
-        return 1;
+        return CANNOT_CREATE_GROUP_EVENT;
 
     server = start_webserver();
-    return server == NULL ? 2 : 0;
+    return server == NULL ? CANNOT_START_SERVER : OK;
 }
 
 void web_ui_stop(){
-    if(server)
+    if(server){
         httpd_stop(server);
+    }
 
     server = NULL;
 
     vEventGroupDelete(internal_events);
 }
 
-int web_ui_wait_for_credentials(){
+esp_err_t web_ui_wait_for_credentials(){
     if(internal_events == NULL)
-        return 1;
+        return ESP_FAIL;
 
     xEventGroupWaitBits(internal_events, CREDENTIALS_READY, pdTRUE, pdFALSE, portMAX_DELAY);
 
-    return 0;
-}
-
-// in case of failure, ssid will contain "No WiFi network saved" while pwd will be empty.
-// ssid_len and pwd_len are always set accordingly
-esp_err_t web_ui_get_credentials(uint8_t* ssid, size_t* ssid_len, uint8_t* pwd, size_t* pwd_len){
-    esp_err_t err;
-    nvs_handle_t nvs;
-    ESP_ERROR_CHECK(nvs_open("nvs", NVS_READONLY, &nvs));
-
-    err = nvs_get_blob(nvs, NVS_SSID_KEY, ssid, ssid_len);
-    if(err != ESP_OK){
-        goto FAIL;
-    }
-
-    err = nvs_get_blob(nvs, NVS_PASSWORD_KEY, pwd, pwd_len);
-    if(err != ESP_OK){
-        goto FAIL;
-    }
-
-    ESP_LOGI("get_credentials", "Credentials have been read: SSID [%s] PWD [%s]", (char*)ssid, (char*)pwd);
-
-
     return ESP_OK;
-
-FAIL:
-
-    const char* msg = "No WiFi network saved";
-    *ssid_len = strlen((const char*)msg);// must be < 32
-    memcpy(ssid, msg, *ssid_len);
-
-    *pwd_len = 0;
-    nvs_close(nvs);
-    return err;
 }
 
 esp_err_t web_ui_notify_connection_established(){
     xEventGroupSetBits(internal_events, CONNECTION_ESTABLISHED);
-    return 0;
+    return ESP_OK;
 }
 
 esp_err_t web_ui_notify_connection_failed(){
     xEventGroupSetBits(internal_events, CONNECTION_FAILED);
-    return 0;
+    return ESP_OK;
 }
+

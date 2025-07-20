@@ -414,8 +414,8 @@ my_err_t check_wifi_credentials(){
     size_t ssid_len = 32;
     size_t pwd_len = 64;
 
-    ESP_ERROR_CHECK(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len));
-    if(sta_cfg.sta.password[0] == 0){
+    esp_err_t err = web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len);
+    if(err != ESP_OK){
         return NO_CREDENTIALS_AVAILABLE;
     }
 
@@ -451,10 +451,12 @@ void web_ui_run(){
     size_t ssid_len = MAX_SSID_LEN;
     size_t pwd_len = MAX_PASSPHRASE_LEN;
 
-    web_ui_start();
+    if(web_ui_start() != OK){
+        return;
+    }
 
     while(4){
-        if(web_ui_wait_for_credentials() != 0){
+        if(web_ui_wait_for_credentials() != ESP_OK){
             ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
             assert(false);
         }
@@ -502,7 +504,7 @@ void app_main(void){
     };
     schedule_t last_train[3] = {0};
 
-    const wifi_config_t ap_cfg = {
+    wifi_config_t ap_cfg = {
         .ap = {
             .ssid = "esp32",
             .ssid_len = strlen("esp32"),
@@ -517,7 +519,7 @@ void app_main(void){
     nvs_init();
     ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
     ESP_ERROR_CHECK(wifi_start());
-    
+
     if(check_wifi_credentials() == NO_CREDENTIALS_AVAILABLE){
         web_ui_run();
     }
@@ -529,8 +531,9 @@ void app_main(void){
     }
 
     // TODO better error handling
-    if(get_ntp_clock())
+    if(get_ntp_clock()){
         ESP_LOGE("main", "ERROR NTP");
+    }
 
     wifi_stop_and_deinit();
 
@@ -540,7 +543,6 @@ void app_main(void){
     if(err != OK){
         // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %s - errno: %s", strerr(err), strerror(errno));
-
     }
 
     // find first and last train of each day
