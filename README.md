@@ -4,7 +4,7 @@ ESP32-based project to visualize subway trains in Genoa, Italy in realtime based
 
 ## Description
 
-The device stores internally the timetable which is parsed to create a train list that is periodically scanned to discover trains on the subway. Every active train is then localized and finally displayed on the map. The map contains the 8 stations + some intermediate point between them to better represent the movement of each train in the network. An NTP server is periodically contacted to retrieve the current time.
+The device stores internally the timetable which is parsed to create a train list that is periodically scanned to discover trains on the subway. Every active train is then localized and finally displayed on the map. The map contains the 8 stations + some intermediate point between them to better represent the movement of each train in the network. An NTP server is periodically contacted to retrieve the current time. The system provides a user-friendly web interface for connecting to the internet.
 
 ## TODO list
 
@@ -14,8 +14,9 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] train localization
 - [x] train display
 - [ ] captive portal for AP config
+- [x] web portal for network configuration
 - [x] automatic SDK cofiguration
-- [ ] power management
+- [x] power management
 - [ ] UI (power button - errors - train scan rate - ...)
 - [ ] OTA for timetable update
 - [ ] Doc
@@ -43,9 +44,7 @@ and download the required Git submodules
     > git submodule update --remote
 ```
 
-Create the file ```components/my_wifi/wifi_credentials.c``` and set the macros ```PSW``` and ```SSID``` in order to connect to your access point
-
-Change the NTP server inside ```components/ntp_client/ntp_client.c``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))
+Change the NTP server inside ```main.c::get_ntp_clock()``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))
 
 **Note**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment it to save time on future build operations
