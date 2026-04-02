@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <assert.h>
 #include "train.h"
 
 static const char* checkpoint_str_map[] = {

@@ -1,6 +1,7 @@
 #include "my_string.h"
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 static void buffer_resize(my_string* s, size_t new_cap){
     s->data = realloc(s->data, new_cap);

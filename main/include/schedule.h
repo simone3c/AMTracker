@@ -16,9 +16,9 @@ int schedule_cmp(const schedule_t* s1, const schedule_t* s2);
 
 // difference, in seconds, between s1 and s2.
 // assumes s1 comes before s2
-// get_daley(10:00:0, 12:00:00) -> 720
-// get_daley(10:00:0, 9:00:00) -> 82800
-// get_daley(10:00:0, 33:00:00) -> 82800
+// schedule_diff(10:00:0, 12:00:00) -> 720
+// schedule_diff(10:00:0, 9:00:00) -> 82800
+// schedule_diff(10:00:0, 33:00:00) -> 82800
 uint32_t schedule_diff(const schedule_t* s1, const schedule_t* s2);
 
 // requires that start comes before end

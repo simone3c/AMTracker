@@ -1,6 +1,6 @@
-/*
+/* 
 
-    ! GTFS's support for >24 hour format (i.e. 01:00 == 25:00) and so does this project
+    ! GTFS supports >24 hour format (i.e. 01:00 == 25:00) and so does this project
 
 */
 
@@ -33,7 +33,6 @@
 #include "led_matrix.h"
 #include "csv_reader.h"
 #include "my_err.h"
-#include "web_ui.h"
 
 #define USE_WIFI
 
@@ -116,10 +115,10 @@ const line_t BRIGNOLE_BRIN = {
 
 static wifi_config_t sta_cfg = {
     .sta = {
-        .ssid = {0},
-        .password = {0},
-        .threshold.authmode = WIFI_AUTH_OPEN,
-        .pmf_cfg.required = false, // security feature
+        .ssid = "MyiPhone",
+        .password = "brutto555",
+        .threshold.authmode = WIFI_AUTH_WPA3_PSK,
+        .pmf_cfg.required = true, // security feature
     },
 };
 
@@ -408,24 +407,6 @@ void timer_init(){
     ESP_ERROR_CHECK(gptimer_enable(timer));
 }
 
-// ! TEST
-my_err_t check_wifi_credentials(){
-
-    size_t ssid_len = 32;
-    size_t pwd_len = 64;
-
-    esp_err_t err = web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len);
-    if(err != ESP_OK){
-        return NO_CREDENTIALS_AVAILABLE;
-    }
-
-    if(esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER){
-        esp_deep_sleep(60 * 1000000); // sleep 1 min
-    }
-
-    return ESP_OK;
-}
-
 // ! correctly initialise nvs(?) before this, otherwise it doesnt mount the partition
 // ! (it works only after wifi and sntp set up something (nvs?))
 void spiffs_init(){
@@ -447,39 +428,17 @@ void nvs_init(){
     ESP_ERROR_CHECK(ret);
 }
 
-void web_ui_run(){
-    size_t ssid_len = MAX_SSID_LEN;
-    size_t pwd_len = MAX_PASSPHRASE_LEN;
-
-    if(web_ui_start() != OK){
-        return;
+void clock_update(){
+    nvs_init();
+    ESP_ERROR_CHECK(wifi_sta_setup(&sta_cfg));
+    if(wifi_start() == ESP_OK){
+        // TODO better error handling
+        if(get_ntp_clock()){
+            ESP_LOGE("clock_update", "ERROR NTP");
+        }
     }
 
-    while(4){
-        if(web_ui_wait_for_credentials() != ESP_OK){
-            ESP_LOGE("main", "cannot wait for credentials if webUI is not initialised!!");
-            assert(false);
-        }
-
-        if(web_ui_get_credentials(&sta_cfg.sta.ssid[0], &ssid_len, &sta_cfg.sta.password[0], &pwd_len) != ESP_OK){
-            ESP_LOGI("main", "error while retrieving credentials");
-        }
-
-        // sta_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-
-        if(wifi_apsta_connect_to(&sta_cfg) == ESP_OK){ // connection established
-            web_ui_notify_connection_established();
-            vTaskDelay(MSEC(1500));
-            break;
-        }
-
-        ESP_LOGI("main", "wrong credentials");
-        // communicate with webui to ask credentials again
-        web_ui_notify_connection_failed();
-
-    }
-
-    web_ui_stop();
+    wifi_stop_and_deinit();
 }
 
 void app_main(void){
@@ -493,49 +452,24 @@ void app_main(void){
     spiffs_init();
 
     // first train of each period
-    // [0] is SUNDAY
-    // [1] is MON_FRI
-    // [2] is SATURDAY
     // initialisation is useful when filling the array
-    schedule_t first_train[3] = {
-        {100, 100, 100}, // SUNDAY
-        {100, 100, 100}, // MON_FRI
-        {100, 100, 100}, // SATURDAY
-    };
-    schedule_t last_train[3] = {0};
+    typedef struct{
+        schedule_t sunday;
+        schedule_t mon_fri;
+        schedule_t saturday;
+    } schedule3_t;
 
-    wifi_config_t ap_cfg = {
-        .ap = {
-            .ssid = "esp32",
-            .ssid_len = strlen("esp32"),
-            .password = "",
-            .max_connection = 1,
-            .authmode = WIFI_AUTH_WPA2_PSK,
-            .pmf_cfg.required = false,
-        },
+    schedule3_t first_train = {
+        {100, 100, 100},
+        {100, 100, 100},
+        {100, 100, 100}
     };
+    schedule3_t last_train = {0};
+
 
 #ifdef USE_WIFI
-    nvs_init();
-    ESP_ERROR_CHECK(wifi_apsta_setup(&sta_cfg, &ap_cfg));
-    ESP_ERROR_CHECK(wifi_start());
-
-    if(check_wifi_credentials() == NO_CREDENTIALS_AVAILABLE){
-        web_ui_run();
-    }
-    else{
-        if(wifi_apsta_connect_to(&sta_cfg) != ESP_OK){
-            ESP_LOGI("main", "wrong credentials");
-            web_ui_run();
-        }
-    }
-
-    // TODO better error handling
-    if(get_ntp_clock()){
-        ESP_LOGE("main", "ERROR NTP");
-    }
-
-    wifi_stop_and_deinit();
+    
+    clock_update();
 
 #endif
 
@@ -547,29 +481,37 @@ void app_main(void){
 
     // find first and last train of each day
     for(int i = 0; i < TRAINS_NUM; ++i){
-        int idx;
         switch(trains[i].day){
         case SUNDAY:
-            idx = 0;
-            break;
+            if(schedule_cmp(&trains[i].arrival[0], &first_train.sunday) == -1){
+                first_train.sunday = trains[i].arrival[0];
+            }
+            else if(schedule_cmp(&trains[i].arrival[0], &last_train.sunday) == 1){
+                last_train.sunday = trains[i].arrival[0];
+            }
+        break;
 
         case MON_FRI:
-            idx = 1;
-            break;
+            if(schedule_cmp(&trains[i].arrival[0], &first_train.mon_fri) == -1){
+                first_train.mon_fri = trains[i].arrival[0];
+            }
+            else if(schedule_cmp(&trains[i].arrival[0], &last_train.mon_fri) == 1){
+                last_train.mon_fri = trains[i].arrival[0];
+            }
+        break;
 
         case SATURDAY:
-            idx = 2;
-            break;
+            if(schedule_cmp(&trains[i].arrival[0], &first_train.saturday) == -1){
+                first_train.saturday = trains[i].arrival[0];
+            }
+            else if(schedule_cmp(&trains[i].arrival[0], &last_train.saturday) == 1){
+                last_train.saturday = trains[i].arrival[0];
+            }
+        break;
 
         default:
             assert(false);
         }
-
-        if(schedule_cmp(&trains[i].arrival[0], &first_train[idx]) == -1)
-            first_train[idx] = trains[i].arrival[0];
-
-        else if(schedule_cmp(&trains[i].arrival[0], &last_train[idx]) == 1)
-            last_train[idx] = trains[i].arrival[0];
     }
 
     // start drawing LED matrix
@@ -588,7 +530,7 @@ void app_main(void){
         now_sched = (schedule_t){18, 0, 10};
         today = MON_FRI;
 #endif
-        // chneg the current day at 4 when no trains are running
+        // change the current day at 4:00AM when no trains are running
         if(now_sched.hour < 4){
             now_sched.hour += 24;
             today = today == SUNDAY ? SATURDAY : today - 1; // trick!!
@@ -611,10 +553,12 @@ void app_main(void){
                 uint8_t row, col, id;
                 my_err_t err = train_to_led(&trains[i], &row, &col, &id);
                 // convert from checkpoint and percentage to rows and columns of the LED matrix
-                if(err == OK)
+                if(err == OK){
                     led_matrix |= ((uint64_t)1 << col) << (8 * row);
-                else
+                }
+                else{
                     ESP_LOGE("main", "%s", strerr(err));
+                }
 
                 ESP_LOGI("main", "train [%i] line [%s] now in [%s] @ %.2f%% | row: %"PRIu8" - col: %"PRIu8" - id: %"PRIu8,
                     trains[i].id,
@@ -632,45 +576,46 @@ void app_main(void){
 
         if(!active_trains){
 
-            uint8_t id_last, id_first;
-
-            // init required in case I'm here but there are more trains today:
+            // if I'm here but there are more trains today:
             // I'm not going to deep sleep but just delay this task for SLEEP_DEFAULT_S
             uint16_t sleep_time_s = SLEEP_DEFAULT_S;
 
             // indices to search for the next train
             switch(today){
             case SUNDAY:
-                id_last = 0;
-                id_first = 1;
+                if(schedule_cmp(&now_sched, &last_train.sunday) == 1){
+                    sleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
+                }
                 break;
 
             case FRIDAY:
-                id_last = 1;
-                id_first = 2;
+                if(schedule_cmp(&now_sched, &last_train.mon_fri) == 1){
+                    sleep_time_s = schedule_diff(&now_sched, &first_train.saturday);
+                }
                 break;
 
             case SATURDAY:
-                id_last = 2;
-                id_first = 0;
+                if(schedule_cmp(&now_sched, &last_train.saturday) == 1){
+                    sleep_time_s = schedule_diff(&now_sched, &first_train.sunday);
+                }
                 break;
 
             default:
-                id_last = 1;
-                id_first = 1;
+                if(schedule_cmp(&now_sched, &last_train.mon_fri) == 1){
+                    sleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
+                }
                 break;
             }
 
-            if(schedule_cmp(&now_sched, &last_train[id_last]) == 1)
-                sleep_time_s = schedule_diff(&now_sched, &first_train[id_first]);
-
             ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
 
-            if(sleep_time_s > 60)
+            if(sleep_time_s > 60){
                 esp_deep_sleep(sleep_time_s * 1000000);
+            }
 
-            if(sleep_time_s >= SLEEP_DEFAULT_S)
+            if(sleep_time_s >= SLEEP_DEFAULT_S){
                 vTaskDelay(MSEC(sleep_time_s * 1000));
+            }
         }
 
         vTaskDelay(MSEC(2000));

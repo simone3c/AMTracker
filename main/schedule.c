@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <inttypes.h>
 #include <string.h>
+#include <assert.h>
 #include "schedule.h"
 
 int schedule_cmp(const schedule_t* s1, const schedule_t* s2){
