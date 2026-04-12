@@ -90,7 +90,6 @@ QueueHandle_t matrix_queue;
 QueueHandle_t sleep_time_queue;
 const sleep_duration_t DEFAULT_SLEEP_DURATION = slow;
 
-
 const line_t BRIN_BRIGNOLE = {
     .name = "brin_brignole",
     .path = {
@@ -242,68 +241,6 @@ my_err_t read_schedule(train_t* trains, const char* file){
 }
 
 my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t* id_ret){
-    // range [0, 7] for leds coordinates
-    static const led_t LEDS[] = {
-        // stations
-        {0, 0, 0, BRIN, BRIGNOLE},
-        {0, 1, 0, DINEGRO, BRIGNOLE},
-        {0, 2, 0, PRINCIPE, BRIGNOLE},
-        {0, 3, 0, DARSENA, BRIGNOLE},
-        {0, 4, 0, SANGIORGIO, BRIGNOLE},
-        {0, 5, 0, SARZANO, BRIGNOLE},
-        {0, 6, 0, DEFERRARI, BRIGNOLE},
-        {0, 7, 0, BRIGNOLE, BRIGNOLE},
-        // intermediate points
-        {1, 0, 0, BRIN_DINEGRO, BRIGNOLE},
-        {1, 1, 1, BRIN_DINEGRO, BRIGNOLE},
-        {1, 2, 2, BRIN_DINEGRO, BRIGNOLE},
-        {1, 3, 3, BRIN_DINEGRO, BRIGNOLE},
-        {1, 4, 4, BRIN_DINEGRO, BRIGNOLE},
-        {1, 5, 5, BRIN_DINEGRO, BRIGNOLE},
-        {1, 6, 0, DINEGRO_PRINCIPE, BRIGNOLE},
-        {1, 7, 1, DINEGRO_PRINCIPE, BRIGNOLE},
-        {2, 0, 0, PRINCIPE_DARSENA, BRIGNOLE},
-        {2, 1, 1, PRINCIPE_DARSENA, BRIGNOLE},
-        {2, 2, 0, DARSENA_SANGIORGIO, BRIGNOLE},
-        {2, 3, 1, DARSENA_SANGIORGIO, BRIGNOLE},
-        {2, 4, 0, SANGIORGIO_SARZANO, BRIGNOLE},
-        {2, 5, 1, SANGIORGIO_SARZANO, BRIGNOLE},
-        {2, 6, 0, SARZANO_DEFERRARI, BRIGNOLE},
-        {2, 7, 1, SARZANO_DEFERRARI, BRIGNOLE},
-        {3, 0, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
-        {3, 1, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
-        {3, 2, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
-
-        // stations
-        {7, 0, 0, BRIN, BRIN},
-        {7, 1, 0, DINEGRO, BRIN},
-        {7, 2, 0, PRINCIPE, BRIN},
-        {7, 3, 0, DARSENA, BRIN},
-        {7, 4, 0, SANGIORGIO, BRIN},
-        {7, 5, 0, SARZANO, BRIN},
-        {7, 6, 0, DEFERRARI, BRIN},
-        {7, 7, 0, BRIGNOLE, BRIN},
-        // intermediate points
-        {6, 0, 0, DEFERRARI_BIRGNOLE, BRIN},
-        {6, 1, 1, DEFERRARI_BIRGNOLE, BRIN},
-        {6, 2, 2, DEFERRARI_BIRGNOLE, BRIN},
-        {6, 3, 0, SARZANO_DEFERRARI, BRIN},
-        {6, 4, 1, SARZANO_DEFERRARI, BRIN},
-        {6, 5, 0, SANGIORGIO_SARZANO, BRIN},
-        {6, 6, 1, SANGIORGIO_SARZANO, BRIN},
-        {6, 7, 0, DARSENA_SANGIORGIO, BRIN},
-        {5, 0, 1, DARSENA_SANGIORGIO, BRIN},
-        {5, 1, 0, PRINCIPE_DARSENA, BRIN},
-        {5, 2, 1, PRINCIPE_DARSENA, BRIN},
-        {5, 3, 0, DINEGRO_PRINCIPE, BRIN},
-        {5, 4, 1, DINEGRO_PRINCIPE, BRIN},
-        {5, 5, 0, BRIN_DINEGRO, BRIN},
-        {5, 6, 1, BRIN_DINEGRO, BRIN},
-        {5, 7, 2, BRIN_DINEGRO, BRIN},
-        {4, 0, 3, BRIN_DINEGRO, BRIN},
-        {4, 1, 4, BRIN_DINEGRO, BRIN},
-        {4, 2, 5, BRIN_DINEGRO, BRIN},
-    };
 
     uint8_t len;
     // number of LEDs for each intermediate section (between 2 stations)
@@ -322,20 +259,99 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
         len = 3;
         break;
     default:
-        // train is in station
+        // train is stopped at a station
         len = 0;
         break;
     }
 
+    // range [0, 7] for leds coordinates
+    static const led_t to_brignole[] = {
+        // stations
+        {0, 0, 0, BRIN, BRIGNOLE},
+        {0, 1, 0, BRIN_DINEGRO, BRIGNOLE},
+        {0, 2, 1, BRIN_DINEGRO, BRIGNOLE},
+        {0, 3, 2, BRIN_DINEGRO, BRIGNOLE},
+        {0, 4, 3, BRIN_DINEGRO, BRIGNOLE},
+        {0, 5, 4, BRIN_DINEGRO, BRIGNOLE},
+        {0, 6, 5, BRIN_DINEGRO, BRIGNOLE},
+
+        {0, 7, 0, DINEGRO, BRIGNOLE},
+        {1, 0, 0, DINEGRO_PRINCIPE, BRIGNOLE},
+        {1, 1, 1, DINEGRO_PRINCIPE, BRIGNOLE},
+        
+        {1, 2, 0, PRINCIPE, BRIGNOLE},
+        {1, 3, 0, PRINCIPE_DARSENA, BRIGNOLE},
+        {1, 4, 1, PRINCIPE_DARSENA, BRIGNOLE},
+
+        {1, 5, 0, DARSENA, BRIGNOLE},
+        {1, 6, 0, DARSENA_SANGIORGIO, BRIGNOLE},
+        {1, 7, 1, DARSENA_SANGIORGIO, BRIGNOLE},
+
+        {2, 0, 0, SANGIORGIO, BRIGNOLE},
+        {2, 1, 0, SANGIORGIO_SARZANO, BRIGNOLE},
+        {2, 2, 1, SANGIORGIO_SARZANO, BRIGNOLE},
+
+        {2, 3, 0, SARZANO, BRIGNOLE},
+        {2, 4, 0, SARZANO_DEFERRARI, BRIGNOLE},
+        {2, 5, 1, SARZANO_DEFERRARI, BRIGNOLE},
+
+        {2, 6, 0, DEFERRARI, BRIGNOLE},
+        {2, 7, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
+        {3, 0, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
+        {3, 1, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
+
+        {3, 2, 0, BRIGNOLE, BRIGNOLE}
+    };
+
+    static const led_t to_brin[] = {
+        // stations
+        {4, 0, 0, BRIN, BRIN},
+        {4, 1, 5, BRIN_DINEGRO, BRIN},
+        {4, 2, 4, BRIN_DINEGRO, BRIN},
+        {4, 3, 3, BRIN_DINEGRO, BRIN},
+        {4, 4, 2, BRIN_DINEGRO, BRIN},
+        {4, 5, 1, BRIN_DINEGRO, BRIN},
+        {4, 6, 0, BRIN_DINEGRO, BRIN},
+
+        {4, 7, 0, DINEGRO, BRIN},
+        {5, 0, 1, DINEGRO_PRINCIPE, BRIN},
+        {5, 1, 0, DINEGRO_PRINCIPE, BRIN},
+        
+        {5, 2, 0, PRINCIPE, BRIN},
+        {5, 3, 1, PRINCIPE_DARSENA, BRIN},
+        {5, 4, 0, PRINCIPE_DARSENA, BRIN},
+
+        {5, 5, 0, DARSENA, BRIN},
+        {5, 6, 1, DARSENA_SANGIORGIO, BRIN},
+        {5, 7, 0, DARSENA_SANGIORGIO, BRIN},
+
+        {6, 0, 0, SANGIORGIO, BRIN},
+        {6, 1, 1, SANGIORGIO_SARZANO, BRIN},
+        {6, 2, 0, SANGIORGIO_SARZANO, BRIN},
+
+        {6, 3, 0, SARZANO, BRIN},
+        {6, 4, 1, SARZANO_DEFERRARI, BRIN},
+        {6, 5, 0, SARZANO_DEFERRARI, BRIN},
+
+        {6, 6, 0, DEFERRARI, BRIN},
+        {6, 7, 2, DEFERRARI_BIRGNOLE, BRIN},
+        {7, 0, 1, DEFERRARI_BIRGNOLE, BRIN},
+        {7, 1, 0, DEFERRARI_BIRGNOLE, BRIN},
+
+        {7, 2, 0, BRIGNOLE, BRIN}
+    };
+
     uint8_t id = train->status.position.perc * len;
     if(len > 0 && id == len)
         --id; // avoid out-of-range index
-    checkpoint_t dest = train->line->path[2 * train->line->stops_num - 1];
+    checkpoint_t dest = train->line->path[2 * train->line->stops_num - 2];
     checkpoint_t pos = train->status.position.checkpoint;
 
     ESP_LOGI("train_to_led", "id: %"PRIu8" - dest: %d - pos: %d", id, dest, pos);
 
-    for(int i = 0; i < sizeof(LEDS) / sizeof(LEDS[0]); ++i){
+    const led_t* LEDS = (dest == BRIGNOLE ? to_brignole : to_brin);
+
+    for(int i = 0; i < 27; ++i){
         if(LEDS[i].dest == dest
             && LEDS[i].pos == pos
             && LEDS[i].relative_id == id
@@ -530,28 +546,35 @@ void wifi_led_cb(TimerHandle_t xTimer){
     static bool lv = false;
 
     lv = !lv;
-    gpio_set_level(2, lv);
+    gpio_set_level(WIFI_LED_PIN, lv);
 }
 
-void clock_update(){
+my_err_t clock_update(){
 
+    my_err_t ret = OK;
     TimerHandle_t tim = xTimerCreate("wifi_led", MSEC(250), pdTRUE, NULL, wifi_led_cb);
     xTimerStart(tim, 0);
 
     nvs_init();
     ESP_ERROR_CHECK(wifi_sta_setup(&sta_cfg));
     if(wifi_start() == ESP_OK){
-        // TODO better error handling
         if(get_ntp_clock()){
             ESP_LOGE("clock_update", "ERROR NTP");
+            ret = NTP_ERROR;
         }
-        xTimerDelete(tim, 100);
-        gpio_set_level(2, true);
+        xTimerStop(tim, 100);
+        gpio_set_level(WIFI_LED_PIN, true);
         vTaskDelay(MSEC(5000));
-        gpio_set_level(2, false);
+        gpio_set_level(WIFI_LED_PIN, false);
     }
+    else{
+        ret = WIFI_ERROR;
+    }
+    xTimerDelete(tim, 100);
 
     wifi_stop_and_deinit();
+
+    return ret;
 }
 
 void app_main(void){
@@ -582,15 +605,15 @@ void app_main(void){
     schedule3_t last_train = {0};
 
 
+    my_err_t ntp_ret = WIFI_ERROR;
 #ifdef USE_WIFI
     
-    clock_update();
+    ntp_ret = clock_update();
 
 #endif
 
     my_err_t err = read_schedule(trains, "/spiffs_root/stop_times_fixed.csv");
     if(err != OK){
-        // TODO turn on error LED and exit
         ESP_LOGE("main", "ERROR READ SCHEDULE: %s - errno: %s", strerr(err), strerror(errno));
     }
 
@@ -644,9 +667,11 @@ void app_main(void){
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
 
-        // set to a preferred time for testing purposes
-        // now_sched = (schedule_t){18, 0, 10};
-        // today = MON_FRI;
+        // TODO remove | set to a preferred time for testing purposes
+        if(ntp_ret != OK){
+            now_sched = (schedule_t){18, 0, 0};
+            today = MON_FRI;
+        }
 
         // change the current day at 4:00AM when no trains are running
         if(now_sched.hour < 4){

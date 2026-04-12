@@ -237,7 +237,7 @@ my_err_t wait_sta_connection(){
         ESP_LOGI("wait_sta_connection", "Connected to ap");
     } else if (bits & WIFI_FAILURE) {
         ESP_LOGI("wait_sta_connection", "Failed to connect to ap");
-        status = WIFI_STA_CANNOT_CONNECT;
+        status = WIFI_ERROR;
     } else {
         ESP_LOGE("wait_sta_connection", "UNEXPECTED EVENT");
         status = UNKNOW_ERR;
