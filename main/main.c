@@ -36,7 +36,7 @@
 
 #include "wifi_credentials.h"
 
-//#define USE_WIFI
+#define USE_WIFI
 
 static gptimer_handle_t timer = NULL;
 
@@ -48,13 +48,14 @@ static gptimer_handle_t timer = NULL;
 
 #define DEEPSLEEP_DEFAULT_S 15
 
-#define DATA 14
-#define CLK 13
-#define LATCH 12
-#define SLEEP_TIME_BUT 15
+#define DATA_PIN 14
+#define CLK_PIN 13
+#define LATCH_PIN 12
+#define SLEEP_TIME_BUTTON_PIN 15
 #define SLOW_REFRESH_RATE_PIN 18
 #define MEDIUM_REFRESH_RATE_PIN 19
 #define FAST_REFRESH_RATE_PIN 21
+#define WIFI_LED_PIN 2
 
 // encoded in milliseconds
 typedef enum {
@@ -64,13 +65,13 @@ typedef enum {
 } sleep_duration_t;
 
 void sn74hc595_set_clk_pin(bool v){
-    gpio_set_level(CLK, v);
+    gpio_set_level(CLK_PIN, v);
 }
 void sn74hc595_set_data_pin(bool v){
-    gpio_set_level(DATA, v);
+    gpio_set_level(DATA_PIN, v);
 }
 void sn74hc595_set_latch_pin(bool v){
-    gpio_set_level(LATCH, v);
+    gpio_set_level(LATCH_PIN, v);
 }
 
 typedef struct{
@@ -399,7 +400,7 @@ static bool ISR_draw_ui(gptimer_handle_t timer, const gptimer_alarm_event_data_t
 static void ISR_gpio(void* args){
     int pin = (int)args;
 
-    if(pin == SLEEP_TIME_BUT){
+    if(pin == SLEEP_TIME_BUTTON_PIN){
 
         static int64_t last_us = 0;
 
@@ -455,9 +456,10 @@ void gpio_init(){
     // GPIO config
     gpio_config_t out_pin_cfg = {
         .pin_bit_mask = 
-            GPIO(DATA) | 
-            GPIO(CLK) | 
-            GPIO(LATCH) | 
+            GPIO(2) |
+            GPIO(DATA_PIN) | 
+            GPIO(CLK_PIN) | 
+            GPIO(LATCH_PIN) | 
             GPIO(SLOW_REFRESH_RATE_PIN) | 
             GPIO(MEDIUM_REFRESH_RATE_PIN) | 
             GPIO(FAST_REFRESH_RATE_PIN),
@@ -469,7 +471,7 @@ void gpio_init(){
     ESP_ERROR_CHECK(gpio_config(&out_pin_cfg));
 
     gpio_config_t in_pin_cfg = {
-        .pin_bit_mask = GPIO(SLEEP_TIME_BUT),
+        .pin_bit_mask = GPIO(SLEEP_TIME_BUTTON_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -524,7 +526,18 @@ void nvs_init(){
     ESP_ERROR_CHECK(ret);
 }
 
+void wifi_led_cb(TimerHandle_t xTimer){
+    static bool lv = false;
+
+    lv = !lv;
+    gpio_set_level(2, lv);
+}
+
 void clock_update(){
+
+    TimerHandle_t tim = xTimerCreate("wifi_led", MSEC(250), pdTRUE, NULL, wifi_led_cb);
+    xTimerStart(tim, 0);
+
     nvs_init();
     ESP_ERROR_CHECK(wifi_sta_setup(&sta_cfg));
     if(wifi_start() == ESP_OK){
@@ -532,6 +545,10 @@ void clock_update(){
         if(get_ntp_clock()){
             ESP_LOGE("clock_update", "ERROR NTP");
         }
+        xTimerDelete(tim, 100);
+        gpio_set_level(2, true);
+        vTaskDelay(MSEC(5000));
+        gpio_set_level(2, false);
     }
 
     wifi_stop_and_deinit();
@@ -615,7 +632,7 @@ void app_main(void){
     //install gpio isr service
     gpio_install_isr_service(0);
     //hook isr handler for specific gpio pin
-    gpio_isr_handler_add(SLEEP_TIME_BUT, ISR_gpio, (void*)SLEEP_TIME_BUT);
+    gpio_isr_handler_add(SLEEP_TIME_BUTTON_PIN, ISR_gpio, (void*)SLEEP_TIME_BUTTON_PIN);
     // start drawing LED matrix
     ESP_ERROR_CHECK(gptimer_start(timer));    
 
