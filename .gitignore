@@ -1,4 +1,4 @@
 .vscode/
 build/
 components/Csv_reader/Csv_reader
-main/wifi_credentials.h
+main/include/wifi_credentials.h

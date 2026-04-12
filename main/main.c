@@ -34,20 +34,34 @@
 #include "csv_reader.h"
 #include "my_err.h"
 
-#define USE_WIFI
+#include "wifi_credentials.h"
+
+//#define USE_WIFI
 
 static gptimer_handle_t timer = NULL;
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
+#define GPIO(x) (1 << (x))
 
 #define STOPS_NUM 8
 #define TRAINS_NUM 801
 
-#define SLEEP_DEFAULT_S 15
+#define DEEPSLEEP_DEFAULT_S 15
 
 #define DATA 14
 #define CLK 13
 #define LATCH 12
+#define SLEEP_TIME_BUT 15
+#define SLOW_REFRESH_RATE_PIN 18
+#define MEDIUM_REFRESH_RATE_PIN 19
+#define FAST_REFRESH_RATE_PIN 21
+
+// encoded in milliseconds
+typedef enum {
+    fast = 500,
+    medium = 1000,
+    slow = 2000
+} sleep_duration_t;
 
 void sn74hc595_set_clk_pin(bool v){
     gpio_set_level(CLK, v);
@@ -66,9 +80,15 @@ typedef struct{
     checkpoint_t pos;
     checkpoint_t dest;
 } led_t;
+
 // encode the matrix content in 8 bytes
 typedef uint64_t matrix_queue_elem_t;
 QueueHandle_t matrix_queue;
+
+// contains the number of milliseconds between two updates of the trains positions
+QueueHandle_t sleep_time_queue;
+const sleep_duration_t DEFAULT_SLEEP_DURATION = slow;
+
 
 const line_t BRIN_BRIGNOLE = {
     .name = "brin_brignole",
@@ -115,8 +135,8 @@ const line_t BRIGNOLE_BRIN = {
 
 static wifi_config_t sta_cfg = {
     .sta = {
-        .ssid = "MyiPhone",
-        .password = "brutto555",
+        .ssid = WIFI_SSID,
+        .password = WIFI_PASSWORD,
         .threshold.authmode = WIFI_AUTH_WPA3_PSK,
         .pmf_cfg.required = true, // security feature
     },
@@ -332,7 +352,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
 
 // for limiting current and because of matrix's structure (common anode),
 // the matrix is drawn one line at a time
-static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
+static bool ISR_draw_ui(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
     static uint8_t row = 0;
     matrix_queue_elem_t data = 0;
     uint8_t cols;
@@ -347,7 +367,68 @@ static bool ISR_draw(gptimer_handle_t timer, const gptimer_alarm_event_data_t *e
     if(++row > 7)
         row = 0;
 
+    // toggle the correct pin based on the selected sleep duration (button)
+    static bool sleep_time_pin_lv = false;
+    static sleep_duration_t time = DEFAULT_SLEEP_DURATION;
+    uint32_t sleep_time_pin;
+
+    if(sleep_time_pin_lv == false){
+        xQueuePeekFromISR(sleep_time_queue, &time);
+    }
+
+    switch (time){
+    case slow:
+        sleep_time_pin = SLOW_REFRESH_RATE_PIN;
+        break;
+    case medium:
+        sleep_time_pin = MEDIUM_REFRESH_RATE_PIN;
+        break;
+    case fast:
+        sleep_time_pin = FAST_REFRESH_RATE_PIN;
+        break;
+    default:
+        assert(false);
+    }
+
+    sleep_time_pin_lv = !sleep_time_pin_lv;
+    gpio_set_level(sleep_time_pin, sleep_time_pin_lv);
+
     return 1;
+}
+
+static void ISR_gpio(void* args){
+    int pin = (int)args;
+
+    if(pin == SLEEP_TIME_BUT){
+
+        static int64_t last_us = 0;
+
+        struct timeval tv_now;
+        gettimeofday(&tv_now, NULL);
+        int64_t now_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
+        if(now_us - last_us < 200000){ // debouncing: 200ms
+            return;
+        }
+        last_us = now_us;
+        
+        static uint32_t sleep_duration = DEFAULT_SLEEP_DURATION;
+
+        int dummy;
+        xQueueOverwriteFromISR(sleep_time_queue, &sleep_duration, &dummy);
+        switch(sleep_duration){
+        case slow:
+            sleep_duration = medium;
+            break;
+        case medium:
+            sleep_duration = fast;
+            break;
+        case fast:
+            sleep_duration = slow;
+            break;
+        default:
+            assert(false);
+        }
+    }
 }
 
 my_err_t get_ntp_clock(){
@@ -372,14 +453,29 @@ my_err_t get_ntp_clock(){
 
 void gpio_init(){
     // GPIO config
-    gpio_config_t pin_cfg = {
-        .pin_bit_mask = (1 << DATA) | (1 << CLK) | (1 << LATCH),
+    gpio_config_t out_pin_cfg = {
+        .pin_bit_mask = 
+            GPIO(DATA) | 
+            GPIO(CLK) | 
+            GPIO(LATCH) | 
+            GPIO(SLOW_REFRESH_RATE_PIN) | 
+            GPIO(MEDIUM_REFRESH_RATE_PIN) | 
+            GPIO(FAST_REFRESH_RATE_PIN),
         .mode = GPIO_MODE_OUTPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_ERROR_CHECK(gpio_config(&pin_cfg));
+    ESP_ERROR_CHECK(gpio_config(&out_pin_cfg));
+
+    gpio_config_t in_pin_cfg = {
+        .pin_bit_mask = GPIO(SLEEP_TIME_BUT),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_POSEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&in_pin_cfg));
 }
 
 void timer_init(){
@@ -400,7 +496,7 @@ void timer_init(){
         }
     };
     gptimer_event_callbacks_t cb = {
-        .on_alarm = ISR_draw
+        .on_alarm = ISR_draw_ui
     };
     ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &timer_alarm));
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
@@ -444,8 +540,10 @@ void clock_update(){
 void app_main(void){
 
     static train_t trains[TRAINS_NUM] = {0};
-
+    
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
+    sleep_time_queue = xQueueCreate(1, sizeof(sleep_duration_t));
+    xQueueOverwrite(sleep_time_queue, &DEFAULT_SLEEP_DURATION);
 
     gpio_init();
     timer_init();
@@ -514,8 +612,12 @@ void app_main(void){
         }
     }
 
+    //install gpio isr service
+    gpio_install_isr_service(0);
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(SLEEP_TIME_BUT, ISR_gpio, (void*)SLEEP_TIME_BUT);
     // start drawing LED matrix
-    ESP_ERROR_CHECK(gptimer_start(timer));
+    ESP_ERROR_CHECK(gptimer_start(timer));    
 
     while(4){
 
@@ -525,11 +627,10 @@ void app_main(void){
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
 
-#ifndef USE_WIFI
         // set to a preferred time for testing purposes
-        now_sched = (schedule_t){18, 0, 10};
-        today = MON_FRI;
-#endif
+        // now_sched = (schedule_t){18, 0, 10};
+        // today = MON_FRI;
+
         // change the current day at 4:00AM when no trains are running
         if(now_sched.hour < 4){
             now_sched.hour += 24;
@@ -577,47 +678,50 @@ void app_main(void){
         if(!active_trains){
 
             // if I'm here but there are more trains today:
-            // I'm not going to deep sleep but just delay this task for SLEEP_DEFAULT_S
-            uint16_t sleep_time_s = SLEEP_DEFAULT_S;
+            // I'm not going to deep sleep but just delay this task for DEEPSLEEP_DEFAULT_S
+            uint16_t deepsleep_time_s = DEEPSLEEP_DEFAULT_S;
 
             // indices to search for the next train
             switch(today){
             case SUNDAY:
                 if(schedule_cmp(&now_sched, &last_train.sunday) == 1){
-                    sleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
+                    deepsleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
                 }
                 break;
 
             case FRIDAY:
                 if(schedule_cmp(&now_sched, &last_train.mon_fri) == 1){
-                    sleep_time_s = schedule_diff(&now_sched, &first_train.saturday);
+                    deepsleep_time_s = schedule_diff(&now_sched, &first_train.saturday);
                 }
                 break;
 
             case SATURDAY:
                 if(schedule_cmp(&now_sched, &last_train.saturday) == 1){
-                    sleep_time_s = schedule_diff(&now_sched, &first_train.sunday);
+                    deepsleep_time_s = schedule_diff(&now_sched, &first_train.sunday);
                 }
                 break;
 
             default:
                 if(schedule_cmp(&now_sched, &last_train.mon_fri) == 1){
-                    sleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
+                    deepsleep_time_s = schedule_diff(&now_sched, &first_train.mon_fri);
                 }
                 break;
             }
 
-            ESP_LOGI("main", "sleep time is: %us", sleep_time_s);
+            ESP_LOGI("main", "sleep time is: %us", deepsleep_time_s);
 
-            if(sleep_time_s > 60){
-                esp_deep_sleep(sleep_time_s * 1000000);
+            if(deepsleep_time_s > 60){
+                esp_deep_sleep(deepsleep_time_s * 1000000);
             }
 
-            if(sleep_time_s >= SLEEP_DEFAULT_S){
-                vTaskDelay(MSEC(sleep_time_s * 1000));
+            if(deepsleep_time_s >= DEEPSLEEP_DEFAULT_S){
+                vTaskDelay(MSEC(deepsleep_time_s * 1000));
             }
         }
 
-        vTaskDelay(MSEC(2000));
+        uint32_t sleep_duration = DEFAULT_SLEEP_DURATION;
+        xQueuePeek(sleep_time_queue, &sleep_duration, 0);
+        ESP_LOGI("main", "----%d----", sleep_duration);
+        vTaskDelay(MSEC(sleep_duration));
     }
 }

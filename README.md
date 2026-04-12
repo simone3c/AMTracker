@@ -46,6 +46,14 @@ and download the required Git submodules
 
 Change the NTP server inside ```main.c::get_ntp_clock()``` to the optimal one for your position (see [ntppool.org](https://www.ntppool.org/en/))
 
+Create the file ```main/include/wifi_credentials.h``` and define inside it the following macros with your wifi credentials:
+```c
+
+    #define WIFI_SSID "..."
+    #define WIFI_PASSWORD "..."
+
+```
+
 **Note:**
     The first time that you are building and flashing the code, you'll also need to flash the timetable by decommenting the ```FLASH_IN_PROJECT``` flag inside ```main/CMakeLists.txt```. Once it is flashed you can comment it to save time on future build operations
 
