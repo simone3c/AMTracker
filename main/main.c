@@ -38,13 +38,15 @@
 
 #define USE_WIFI
 
-static gptimer_handle_t timer = NULL;
+
+static gptimer_handle_t matrix_timer = NULL;
 
 #define MSEC(x) ((x) / portTICK_PERIOD_MS)
 #define GPIO(x) (1 << (x))
 
 #define STOPS_NUM 8
 #define TRAINS_NUM 801
+static train_t trains[TRAINS_NUM] = {0};
 
 #define DEEPSLEEP_DEFAULT_S 15
 
@@ -250,7 +252,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
     case DARSENA_SANGIORGIO:
     case SANGIORGIO_SARZANO:
     case SARZANO_DEFERRARI:
-        len = 2;
+        len = 1;
         break;
     case BRIN_DINEGRO:
         len = 6;
@@ -264,6 +266,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
         break;
     }
 
+    
     // range [0, 7] for leds coordinates
     static const led_t to_brignole[] = {
         // stations
@@ -274,35 +277,34 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
         {0, 4, 3, BRIN_DINEGRO, BRIGNOLE},
         {0, 5, 4, BRIN_DINEGRO, BRIGNOLE},
         {0, 6, 5, BRIN_DINEGRO, BRIGNOLE},
-
+        
         {0, 7, 0, DINEGRO, BRIGNOLE},
         {1, 0, 0, DINEGRO_PRINCIPE, BRIGNOLE},
-        {1, 1, 1, DINEGRO_PRINCIPE, BRIGNOLE},
+        //{1, 1, 1, DINEGRO_PRINCIPE, BRIGNOLE},
         
         {1, 2, 0, PRINCIPE, BRIGNOLE},
         {1, 3, 0, PRINCIPE_DARSENA, BRIGNOLE},
-        {1, 4, 1, PRINCIPE_DARSENA, BRIGNOLE},
-
+        //{1, 4, 1, PRINCIPE_DARSENA, BRIGNOLE},
+        
         {1, 5, 0, DARSENA, BRIGNOLE},
         {1, 6, 0, DARSENA_SANGIORGIO, BRIGNOLE},
-        {1, 7, 1, DARSENA_SANGIORGIO, BRIGNOLE},
-
+        //{1, 7, 1, DARSENA_SANGIORGIO, BRIGNOLE},
+        
         {2, 0, 0, SANGIORGIO, BRIGNOLE},
         {2, 1, 0, SANGIORGIO_SARZANO, BRIGNOLE},
-        {2, 2, 1, SANGIORGIO_SARZANO, BRIGNOLE},
-
+        //{2, 2, 1, SANGIORGIO_SARZANO, BRIGNOLE},
+        
         {2, 3, 0, SARZANO, BRIGNOLE},
         {2, 4, 0, SARZANO_DEFERRARI, BRIGNOLE},
-        {2, 5, 1, SARZANO_DEFERRARI, BRIGNOLE},
-
+        //{2, 5, 1, SARZANO_DEFERRARI, BRIGNOLE},
+        
         {2, 6, 0, DEFERRARI, BRIGNOLE},
         {2, 7, 0, DEFERRARI_BIRGNOLE, BRIGNOLE},
         {3, 0, 1, DEFERRARI_BIRGNOLE, BRIGNOLE},
         {3, 1, 2, DEFERRARI_BIRGNOLE, BRIGNOLE},
-
+        
         {3, 2, 0, BRIGNOLE, BRIGNOLE}
     };
-
     static const led_t to_brin[] = {
         // stations
         {4, 0, 0, BRIN, BRIN},
@@ -312,35 +314,36 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
         {4, 4, 2, BRIN_DINEGRO, BRIN},
         {4, 5, 1, BRIN_DINEGRO, BRIN},
         {4, 6, 0, BRIN_DINEGRO, BRIN},
-
+        
         {4, 7, 0, DINEGRO, BRIN},
-        {5, 0, 1, DINEGRO_PRINCIPE, BRIN},
-        {5, 1, 0, DINEGRO_PRINCIPE, BRIN},
+        {5, 0, 0, DINEGRO_PRINCIPE, BRIN},
+        //{5, 1, 0, DINEGRO_PRINCIPE, BRIN},
         
         {5, 2, 0, PRINCIPE, BRIN},
-        {5, 3, 1, PRINCIPE_DARSENA, BRIN},
-        {5, 4, 0, PRINCIPE_DARSENA, BRIN},
-
+        {5, 3, 0, PRINCIPE_DARSENA, BRIN},
+        //{5, 4, 0, PRINCIPE_DARSENA, BRIN},
+        
         {5, 5, 0, DARSENA, BRIN},
-        {5, 6, 1, DARSENA_SANGIORGIO, BRIN},
-        {5, 7, 0, DARSENA_SANGIORGIO, BRIN},
-
+        {5, 6, 0, DARSENA_SANGIORGIO, BRIN},
+        //{5, 7, 0, DARSENA_SANGIORGIO, BRIN},
+        
         {6, 0, 0, SANGIORGIO, BRIN},
-        {6, 1, 1, SANGIORGIO_SARZANO, BRIN},
-        {6, 2, 0, SANGIORGIO_SARZANO, BRIN},
-
+        {6, 1, 0, SANGIORGIO_SARZANO, BRIN},
+        //{6, 2, 0, SANGIORGIO_SARZANO, BRIN},
+        
         {6, 3, 0, SARZANO, BRIN},
-        {6, 4, 1, SARZANO_DEFERRARI, BRIN},
-        {6, 5, 0, SARZANO_DEFERRARI, BRIN},
-
+        {6, 4, 0, SARZANO_DEFERRARI, BRIN},
+        //{6, 5, 0, SARZANO_DEFERRARI, BRIN},
+        
         {6, 6, 0, DEFERRARI, BRIN},
         {6, 7, 2, DEFERRARI_BIRGNOLE, BRIN},
         {7, 0, 1, DEFERRARI_BIRGNOLE, BRIN},
         {7, 1, 0, DEFERRARI_BIRGNOLE, BRIN},
-
+        
         {7, 2, 0, BRIGNOLE, BRIN}
     };
-
+    static const int PHYSIC_LINE_LEN = sizeof(to_brignole) / sizeof(to_brignole[0]);
+    
     uint8_t id = train->status.position.perc * len;
     if(len > 0 && id == len)
         --id; // avoid out-of-range index
@@ -351,7 +354,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
 
     const led_t* LEDS = (dest == BRIGNOLE ? to_brignole : to_brin);
 
-    for(int i = 0; i < 27; ++i){
+    for(int i = 0; i < PHYSIC_LINE_LEN; ++i){
         if(LEDS[i].dest == dest
             && LEDS[i].pos == pos
             && LEDS[i].relative_id == id
@@ -369,7 +372,7 @@ my_err_t train_to_led(const train_t* train, uint8_t* row, uint8_t* col, uint8_t*
 
 // for limiting current and because of matrix's structure (common anode),
 // the matrix is drawn one line at a time
-static bool ISR_draw_ui(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
+void draw_ui_cb(){
     static uint8_t row = 0;
     matrix_queue_elem_t data = 0;
     uint8_t cols;
@@ -409,6 +412,13 @@ static bool ISR_draw_ui(gptimer_handle_t timer, const gptimer_alarm_event_data_t
 
     sleep_time_pin_lv = !sleep_time_pin_lv;
     gpio_set_level(sleep_time_pin, sleep_time_pin_lv);
+}
+
+static bool ISR_draw_ui(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void* args){
+    
+    if(timer == matrix_timer){
+        draw_ui_cb();
+    }
 
     return 1;
 }
@@ -505,7 +515,7 @@ void timer_init(){
         .intr_priority = 0,
         .flags = {0},
     };
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &timer));
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_cfg, &matrix_timer));
     gptimer_alarm_config_t timer_alarm = {
         .alarm_count = 2000, // 2ms period with 1MHz timer freq (empirical value)
         .reload_count = 0,
@@ -516,9 +526,10 @@ void timer_init(){
     gptimer_event_callbacks_t cb = {
         .on_alarm = ISR_draw_ui
     };
-    ESP_ERROR_CHECK(gptimer_set_alarm_action(timer, &timer_alarm));
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(timer, &cb, NULL));
-    ESP_ERROR_CHECK(gptimer_enable(timer));
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(matrix_timer, &timer_alarm));
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(matrix_timer, &cb, NULL));
+
+    ESP_ERROR_CHECK(gptimer_enable(matrix_timer));
 }
 
 // ! correctly initialise nvs(?) before this, otherwise it doesnt mount the partition
@@ -565,12 +576,13 @@ my_err_t clock_update(){
         xTimerStop(tim, 100);
         gpio_set_level(WIFI_LED_PIN, true);
         vTaskDelay(MSEC(5000));
-        gpio_set_level(WIFI_LED_PIN, false);
+        
     }
     else{
         ret = WIFI_ERROR;
     }
     xTimerDelete(tim, 100);
+    gpio_set_level(WIFI_LED_PIN, false);
 
     wifi_stop_and_deinit();
 
@@ -578,17 +590,27 @@ my_err_t clock_update(){
 }
 
 void app_main(void){
-
-    static train_t trains[TRAINS_NUM] = {0};
     
     matrix_queue = xQueueCreate(1, sizeof(matrix_queue_elem_t));
     sleep_time_queue = xQueueCreate(1, sizeof(sleep_duration_t));
     xQueueOverwrite(sleep_time_queue, &DEFAULT_SLEEP_DURATION);
+    bool tmp = true;
 
     gpio_init();
     timer_init();
     spiffs_init();
+// ! test ---
+    gpio_set_level(SLOW_REFRESH_RATE_PIN, 1);
 
+    while(4){
+        for(int i = 0; i < 8; ++i){
+            for(int j = 0; j < 8; ++j){
+                matrix_draw(1 << i, 1 << j);
+                vTaskDelay(MSEC(500));
+            }
+        }
+    }
+// ! ----
     // first train of each period
     // initialisation is useful when filling the array
     typedef struct{
@@ -603,7 +625,6 @@ void app_main(void){
         {100, 100, 100}
     };
     schedule3_t last_train = {0};
-
 
     my_err_t ntp_ret = WIFI_ERROR;
 #ifdef USE_WIFI
@@ -657,7 +678,7 @@ void app_main(void){
     //hook isr handler for specific gpio pin
     gpio_isr_handler_add(SLEEP_TIME_BUTTON_PIN, ISR_gpio, (void*)SLEEP_TIME_BUTTON_PIN);
     // start drawing LED matrix
-    ESP_ERROR_CHECK(gptimer_start(timer));    
+    ESP_ERROR_CHECK(gptimer_start(matrix_timer));    
 
     while(4){
 
@@ -667,12 +688,13 @@ void app_main(void){
         schedule_t now_sched = {now.tm_hour, now.tm_min, now.tm_sec};
         day_t today = now.tm_wday;
 
-        // TODO remove | set to a preferred time for testing purposes
+#ifndef USE_WIFI
+        // set to a preferred time for testing purposes
         if(ntp_ret != OK){
-            now_sched = (schedule_t){18, 0, 0};
+            now_sched = (schedule_t){6, 48, 30};
             today = MON_FRI;
         }
-
+#endif
         // change the current day at 4:00AM when no trains are running
         if(now_sched.hour < 4){
             now_sched.hour += 24;
