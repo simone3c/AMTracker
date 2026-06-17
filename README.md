@@ -17,16 +17,16 @@ The device stores internally the timetable which is parsed to create a train lis
 - [x] power management
 - [x] UI (train scan rate - wifi error LED)
 - [ ] Doc
-- [ ] PCB
+- [x] PCB
 - [ ] ???
 
 ## Getting Started
 
-The project is developed on ESP-IDF v5.4.1 and it's tested on an ESP32-WROVER-E.
+The project is developed on ESP-IDF v6.0 and it's tested on an ESP32-WROVER-E.
 
 ### Prerequisites
 
-- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/index.html) v5.4.1 - Framework for developing, building and flashing code on ESP32.
+- [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/index.html) v6.0 - Framework for developing, building and flashing code on ESP32.
 
 ### Installing and building
 
@@ -80,11 +80,16 @@ To run the code on your ESP32 you need to have necessary components listed in th
 
 ### Bills of material
 
-**TODO**
+- 1x ESP-32-WROVER-E
+- 1x push button switch
+- 2x shift registers SN74HC595N
+- 47x red LEDs
+- 11x 220 Ohm resistors
+- 2x 1x20 male-female pin header strips
 
-### Wiring diagram
+### Schematic diagram
 
-**TODO**
+![Schematic image](img/schematic.png)
 
 ### Flash the code
 
@@ -98,7 +103,7 @@ When everything is connected, the last step is to flash the code and finally run
 
 ## PCB
 
-**TODO**
+![PCB image](img/pcb.png)
 
 ## License
 
