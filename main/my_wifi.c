@@ -79,6 +79,17 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
 		    ESP_LOGI("wifi_event_handler", "Registered event: WIFI_EVENT_STA_DISCONNECTED");
 			esp_wifi_connect();
 			++sta_connection_retry_num;
+
+
+wifi_event_sta_disconnected_t *event =
+        (wifi_event_sta_disconnected_t *)event_data;
+
+    ESP_LOGI("Wifi",
+             "Disconnected: reason=%d, ssid=%s",
+             event ? event->reason : 12234,
+             event ? event->ssid  : (uint8_t*)"NULL");
+
+
             return;
 		}
         xEventGroupSetBits(wifi_event_group, WIFI_FAILURE);
@@ -98,6 +109,8 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t e
         sta_connection_retry_num = 0;
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED);
     }
+
+    
 }
 
 // init STA wifi

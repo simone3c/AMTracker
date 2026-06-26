@@ -139,10 +139,13 @@ static wifi_config_t sta_cfg = {
     .sta = {
         .ssid = WIFI_SSID,
         .password = WIFI_PASSWORD,
-        .threshold.authmode = WIFI_AUTH_WPA3_PSK,
+        .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         .pmf_cfg.required = true, // security feature
     },
 };
+
+uint32_t sleep_time_pin;
+
 
 // assumes that lines relative to the same train come back-to-back
 my_err_t read_schedule(train_t* trains, const char* file){
@@ -390,7 +393,6 @@ void draw_ui_cb(){
     // toggle the correct pin based on the selected sleep duration (button)
     static bool sleep_time_pin_lv = false;
     static sleep_duration_t time = DEFAULT_SLEEP_DURATION;
-    uint32_t sleep_time_pin;
 
     if(sleep_time_pin_lv == false){
         xQueuePeekFromISR(sleep_time_queue, &time);
@@ -576,13 +578,15 @@ my_err_t clock_update(){
         xTimerStop(tim, 100);
         gpio_set_level(WIFI_LED_PIN, true);
         vTaskDelay(MSEC(5000));
+        gpio_set_level(WIFI_LED_PIN, false);
         
     }
     else{
         ret = WIFI_ERROR;
+        xTimerStop(tim, 100);
+        gpio_set_level(WIFI_LED_PIN, true);
     }
     xTimerDelete(tim, 100);
-    gpio_set_level(WIFI_LED_PIN, false);
 
     wifi_stop_and_deinit();
 
@@ -599,18 +603,7 @@ void app_main(void){
     gpio_init();
     timer_init();
     spiffs_init();
-// ! test ---
-    gpio_set_level(SLOW_REFRESH_RATE_PIN, 1);
 
-    while(4){
-        for(int i = 0; i < 8; ++i){
-            for(int j = 0; j < 8; ++j){
-                matrix_draw(1 << i, 1 << j);
-                vTaskDelay(MSEC(500));
-            }
-        }
-    }
-// ! ----
     // first train of each period
     // initialisation is useful when filling the array
     typedef struct{
@@ -736,10 +729,17 @@ void app_main(void){
                 );
             }
         }
-
+        
         xQueueOverwrite(matrix_queue, &led_matrix);
-
+        
         if(!active_trains){
+            
+            led_matrix = 0;
+            xQueueOverwrite(matrix_queue, &led_matrix);
+            vTaskDelay(MSEC(1000));
+            ESP_ERROR_CHECK(gptimer_disable(matrix_timer));    
+            vTaskDelay(MSEC(1000));
+            gpio_set_level(sleep_time_pin, 0);
 
             // if I'm here but there are more trains today:
             // I'm not going to deep sleep but just delay this task for DEEPSLEEP_DEFAULT_S
